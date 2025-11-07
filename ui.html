@@ -1,0 +1,1485 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>CMYK Tools</title>
+  <script src="coated_fogra39_profile.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f5f7;
+      --fg: #1f2329;
+      --surface: #ffffff;
+      --surface-border: #d1d5db;
+      --accent: #18a0fb;
+      --accent-foreground: #ffffff;
+      --muted: #6b7280;
+      --divider: rgba(17, 24, 39, 0.08);
+      --input-bg: #ffffff;
+      --shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+
+    .panel-actions button {
+      padding-inline: 10px;
+    }
+
+    .icon-button {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      font-size: 1.2em;
+      line-height: 1;
+    }
+
+    .settings-panel {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px dashed var(--surface-border);
+      background: color-mix(in srgb, var(--surface) 75%, var(--bg) 25%);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .settings-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .settings-grow {
+      flex: 1 1 160px;
+      min-width: 120px;
+    }
+
+    .settings-slider {
+      flex: 1 1 160px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    body[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #1f2225;
+      --fg: #f5f5f5;
+      --surface: #26292c;
+      --surface-border: #3f4347;
+      --accent: #0a84ff;
+      --accent-foreground: #ffffff;
+      --muted: #9ca3af;
+      --divider: rgba(255, 255, 255, 0.08);
+      --input-bg: #1f1f22;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    }
+
+    body {
+      margin: 0;
+      padding: 16px;
+      min-height: 100vh;
+      box-sizing: border-box;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    body[data-ui-scale="small"] {
+      font-size: 12px;
+    }
+
+    body[data-ui-scale="medium"] {
+      font-size: 13px;
+    }
+
+    body[data-ui-scale="large"] {
+      font-size: 15px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    header.page-header {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.2em;
+      font-weight: 600;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.85em;
+    }
+
+    main {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    section.panel {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: var(--shadow);
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 1.05em;
+      font-weight: 600;
+    }
+
+    .panel-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .row label {
+      flex: 1;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.95em;
+    }
+
+    label.checkbox {
+      flex-direction: row;
+      gap: 8px;
+      align-items: center;
+      font-size: 0.9em;
+    }
+
+    label.checkbox.align-right {
+      justify-content: flex-end;
+    }
+
+    label.checkbox input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+    }
+
+    input,
+    select,
+    button {
+      font: inherit;
+    }
+
+    input[type="number"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--surface-border);
+      background: var(--input-bg);
+      color: var(--fg);
+      transition: border-color 0.15s ease;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+    }
+
+    button {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      background: var(--accent);
+      color: var(--accent-foreground);
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 0.1s ease, background 0.15s ease;
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      background: color-mix(in srgb, var(--accent) 30%, transparent);
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--divider);
+      margin: 4px 0;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .distance-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 160px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .distance-item {
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: color-mix(in srgb, var(--surface) 80%, var(--bg) 20%);
+    }
+
+    .distance-item strong {
+      font-weight: 600;
+    }
+
+    .distance-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 0.9em;
+    }
+
+    .panel-footer {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    @media (max-width: 360px) {
+      body {
+        padding: 12px;
+      }
+
+      section.panel {
+        padding: 12px;
+      }
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+</head>
+<body data-ui-scale="medium">
+  <header class="page-header">
+    <div class="header-top">
+      <h1>Нафиг иллюстратор</h1>
+      <button id="toggle-settings" type="button" class="icon-button" title="Настройки интерфейса" aria-label="Настройки интерфейса">⚙️</button>
+    </div>
+    <p class="subtitle">Утилиты для CMYK и управления размерами</p>
+    <div id="ui-settings" class="settings-panel hidden" aria-hidden="true">
+      <div class="settings-row">
+        <label>
+          Масштаб интерфейса
+          <select id="ui-scale">
+            <option value="small">Малый UI</option>
+            <option value="medium" selected>Средний UI</option>
+            <option value="large">Крупный UI</option>
+          </select>
+        </label>
+        <label>
+          Пресет окна
+          <select id="ui-size">
+            <option value="small">Небольшое окно</option>
+            <option value="medium" selected>Стандартное окно</option>
+            <option value="large">Большое окно</option>
+          </select>
+        </label>
+        <button id="toggle-theme" type="button" class="icon-button" title="Переключить тему" aria-label="Переключить тему">🌙</button>
+      </div>
+      <div class="settings-row">
+        <label class="settings-grow">
+          Ширина окна (px)
+          <input id="ui-width" type="number" min="280" max="720" step="10" />
+        </label>
+        <input id="ui-width-range" class="settings-slider" type="range" min="280" max="720" step="10" />
+      </div>
+      <div class="settings-row">
+        <label class="settings-grow">
+          Высота окна (px)
+          <input id="ui-height" type="number" min="360" max="900" step="10" />
+        </label>
+        <input id="ui-height-range" class="settings-slider" type="range" min="360" max="900" step="10" />
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel" id="layout-panel">
+      <div class="panel-header">
+        <h2>Размеры</h2>
+      </div>
+      <div class="row">
+        <label>
+          Ширина (мм)
+          <input id="width-mm" type="number" step="0.01" />
+        </label>
+        <label>
+          Высота (мм)
+          <input id="height-mm" type="number" step="0.01" />
+        </label>
+      </div>
+      <label class="checkbox align-right">
+        <input id="lock-proportions" type="checkbox" />
+        Пропорционально
+      </label>
+      <div class="panel-footer">
+        <button id="apply-size">Применить размеры</button>
+      </div>
+    </section>
+
+    <section class="panel" id="distance-panel">
+      <div class="panel-header">
+        <h2>Расстояния</h2>
+      </div>
+      <div id="distance-list" class="distance-list hidden"></div>
+    </section>
+
+    <section class="panel" id="export-panel">
+      <div class="panel-header">
+        <h2>Экспорт в CMYK</h2>
+      </div>
+      <div class="stack">
+        <label>
+          Формат
+          <select id="export-format">
+            <option value="pdf" selected>PDF</option>
+            <option value="tiff">TIFF</option>
+          </select>
+        </label>
+
+        <div id="pdf-options" class="stack">
+          <label>
+            Версия PDF
+            <select id="pdf-version">
+              <option value="1.3">PDF 1.3</option>
+              <option value="1.4">PDF 1.4</option>
+              <option value="1.5">PDF 1.5</option>
+              <option value="1.6" selected>PDF 1.6</option>
+              <option value="1.7">PDF 1.7</option>
+            </select>
+          </label>
+          <label>
+            Сжатие изображений
+            <select id="pdf-compression">
+              <option value="none" selected>Без сжатия</option>
+              <option value="runLength">RunLength</option>
+              <option value="lzw">LZW</option>
+            </select>
+          </label>
+          <label>
+            Стандарт PDF
+            <select id="pdf-standard">
+              <option value="none" selected>Нет</option>
+              <option value="PDF/X-1a:2001">PDF/X-1a:2001</option>
+              <option value="PDF/X-4:2008">PDF/X-4:2008</option>
+              <option value="PDF/X-3:2002">PDF/X-3:2002</option>
+              <option value="PDF/X-3:2003">PDF/X-3:2003</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="tiff-options" class="stack hidden">
+          <label>
+            Сжатие TIFF
+            <select id="tiff-compression">
+              <option value="none" selected>Без сжатия</option>
+              <option value="lzw">LZW</option>
+            </select>
+          </label>
+          <label>
+            DPI
+            <input id="tiff-dpi" type="number" min="1" value="300" />
+          </label>
+        </div>
+
+        <div id="server-options" class="stack">
+          <label class="checkbox">
+            <input id="use-server" type="checkbox" checked />
+            Использовать сервер конвертации
+          </label>
+        </div>
+      </div>
+      <div class="panel-footer">
+        <button id="export-cmyk">Экспортировать выделение</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const widthInput = document.getElementById('width-mm');
+    const heightInput = document.getElementById('height-mm');
+    const applySizeButton = document.getElementById('apply-size');
+    const exportButton = document.getElementById('export-cmyk');
+    const formatSelect = document.getElementById('export-format');
+    const pdfOptionsBlock = document.getElementById('pdf-options');
+    const tiffOptionsBlock = document.getElementById('tiff-options');
+    const pdfVersionSelect = document.getElementById('pdf-version');
+    const pdfCompressionSelect = document.getElementById('pdf-compression');
+    const pdfStandardSelect = document.getElementById('pdf-standard');
+    const tiffCompressionSelect = document.getElementById('tiff-compression');
+    const tiffDpiInput = document.getElementById('tiff-dpi');
+    const useServerCheckbox = document.getElementById('use-server');
+    const lockProportionsCheckbox = document.getElementById('lock-proportions');
+    const uiScaleSelect = document.getElementById('ui-scale');
+    const uiSizeSelect = document.getElementById('ui-size');
+    const distanceList = document.getElementById('distance-list');
+    const bodyElement = document.body;
+    const toggleThemeButton = document.getElementById('toggle-theme');
+    const toggleSettingsButton = document.getElementById('toggle-settings');
+    const uiSettingsPanel = document.getElementById('ui-settings');
+    const uiWidthInput = document.getElementById('ui-width');
+    const uiWidthRange = document.getElementById('ui-width-range');
+    const uiHeightInput = document.getElementById('ui-height');
+    const uiHeightRange = document.getElementById('ui-height-range');
+    const hasServerControls = !!useServerCheckbox;
+    let selectionResizable = false;
+    let selectionRatio = null;
+    let isSyncingDimensions = false;
+    let manualThemeOverride = null;
+    let isApplyingPreferences = false;
+    let settingsExpanded = false;
+
+    function post(type, payload) {
+      const message = { type };
+      if (payload && typeof payload === 'object') {
+        for (const key in payload) {
+          if (Object.prototype.hasOwnProperty.call(payload, key)) {
+            message[key] = payload[key];
+          }
+        }
+      }
+      parent.postMessage({ pluginMessage: message }, '*');
+    }
+
+    function setApplySizeState(enabled) {
+      applySizeButton.disabled = !enabled;
+    }
+
+    function setDistanceList(items) {
+      if (!Array.isArray(items) || items.length === 0) {
+        distanceList.classList.add('hidden');
+        distanceList.innerHTML = '';
+        return;
+      }
+      const formatMm = (value) => `${Math.abs(Number(value) || 0).toFixed(2)} мм`;
+      const formatHorizontal = (value) => {
+        const arrow = value > 0 ? '→' : value < 0 ? '←' : '↔';
+        return `${arrow} ${formatMm(value)}`;
+      };
+      const formatVertical = (value) => {
+        const arrow = value > 0 ? '↓' : value < 0 ? '↑' : '↕';
+        return `${arrow} ${formatMm(value)}`;
+      };
+      distanceList.classList.remove('hidden');
+      distanceList.innerHTML = items.map((item) => {
+        return `
+          <div class="distance-item">
+            <div class="distance-row">
+              <span>${formatHorizontal(item.deltaX)}</span>
+              <span>${formatVertical(item.deltaY)}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function updateThemeVisual(mode) {
+      const theme = mode === 'dark' ? 'dark' : 'light';
+      bodyElement.dataset.theme = theme;
+      const isDark = theme === 'dark';
+      const label = isDark ? 'Переключить на светлую тему' : 'Переключить на тёмную тему';
+      toggleThemeButton.textContent = isDark ? '🌙' : '☀️';
+      toggleThemeButton.title = label;
+      toggleThemeButton.setAttribute('aria-label', label);
+    }
+
+    function setSettingsVisibility(expanded) {
+      settingsExpanded = !!expanded;
+      if (!uiSettingsPanel || !toggleSettingsButton) {
+        return;
+      }
+      if (settingsExpanded) {
+        uiSettingsPanel.classList.remove('hidden');
+        uiSettingsPanel.setAttribute('aria-hidden', 'false');
+        toggleSettingsButton.setAttribute('aria-expanded', 'true');
+        toggleSettingsButton.title = 'Скрыть настройки интерфейса';
+      } else {
+        uiSettingsPanel.classList.add('hidden');
+        uiSettingsPanel.setAttribute('aria-hidden', 'true');
+        toggleSettingsButton.setAttribute('aria-expanded', 'false');
+        toggleSettingsButton.title = 'Настройки интерфейса';
+      }
+    }
+
+    function setExportState(isExporting) {
+      exportButton.disabled = isExporting;
+      exportButton.textContent = isExporting ? 'Экспорт...' : 'Экспортировать выделение';
+    }
+
+    const DEFAULT_SERVER_URL = 'http://localhost:3001';
+
+    const encoder = new TextEncoder();
+    const PDF_STANDARD_CONFIG = {
+      'PDF/X-1a:2001': { version: '1.3', pdfxVersion: 'PDF/X-1:2001', conformance: 'PDF/X-1a:2001' },
+      'PDF/X-3:2002': { version: '1.3', pdfxVersion: 'PDF/X-3:2002', conformance: 'PDF/X-3:2002' },
+      'PDF/X-3:2003': { version: '1.3', pdfxVersion: 'PDF/X-3:2003', conformance: 'PDF/X-3:2003' },
+      'PDF/X-4:2008': { version: '1.6', pdfxVersion: 'PDF/X-4', conformance: 'PDF/X-4:2008' }
+    };
+
+    let coatedFograProfileBytes = null;
+
+    function getCoatedFograProfile() {
+      if (coatedFograProfileBytes) {
+        return coatedFograProfileBytes;
+      }
+      const base64 = typeof window !== 'undefined' ? window.COATED_FOGRA39_BASE64 : null;
+      if (!base64) {
+        return null;
+      }
+      try {
+        const binary = atob(base64);
+        const length = binary.length;
+        const bytes = new Uint8Array(length);
+        for (let i = 0; i < length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        coatedFograProfileBytes = bytes;
+        return coatedFograProfileBytes;
+      } catch (error) {
+        console.error('Не удалось декодировать профиль CoatedFOGRA39', error);
+        return null;
+      }
+    }
+
+    function ensurePdfVersion(requested, minimum) {
+      if (!minimum) {
+        return requested;
+      }
+      const requestedValue = parseFloat(requested);
+      const minimumValue = parseFloat(minimum);
+      if (Number.isNaN(requestedValue) || requestedValue < minimumValue) {
+        return minimum;
+      }
+      return requested;
+    }
+
+    function pdfString(value) {
+      const text = String(value == null ? '' : value);
+      return `(${text.replace(/[\\()]/g, '\\$&')})`;
+    }
+
+    function runLengthEncode(data) {
+      if (!data || data.length === 0) {
+        return new Uint8Array([128]);
+      }
+      const output = [];
+      const literals = [];
+
+      function flushLiterals() {
+        if (literals.length === 0) {
+          return;
+        }
+        output.push(literals.length - 1);
+        for (let i = 0; i < literals.length; i += 1) {
+          output.push(literals[i]);
+        }
+        literals.length = 0;
+      }
+
+      let index = 0;
+      const length = data.length;
+      while (index < length) {
+        let runLength = 1;
+        while (runLength < 128 && index + runLength < length && data[index] === data[index + runLength]) {
+          runLength += 1;
+        }
+        if (runLength > 1) {
+          flushLiterals();
+          output.push(257 - runLength);
+          output.push(data[index]);
+          index += runLength;
+        } else {
+          literals.push(data[index]);
+          if (literals.length === 128) {
+            flushLiterals();
+          }
+          index += 1;
+        }
+      }
+
+      flushLiterals();
+      output.push(128);
+      return new Uint8Array(output);
+    }
+
+    function lzwEncode(data) {
+      const CLEAR_CODE = 256;
+      const EOI_CODE = 257;
+      const MAX_BITS = 12;
+      const MAX_CODE = (1 << MAX_BITS) - 1;
+
+      let dictionary = new Map();
+
+      function resetDictionary() {
+        dictionary = new Map();
+        for (let i = 0; i < 256; i += 1) {
+          dictionary.set(String.fromCharCode(i), i);
+        }
+      }
+
+      resetDictionary();
+
+      let codeSize = 9;
+      let nextCode = 258;
+      const buffer = [];
+      let bitBuffer = 0;
+      let bitsInBuffer = 0;
+
+      function writeCode(code) {
+        bitBuffer = (bitBuffer << codeSize) | code;
+        bitsInBuffer += codeSize;
+        while (bitsInBuffer >= 8) {
+          bitsInBuffer -= 8;
+          const byte = (bitBuffer >> bitsInBuffer) & 0xff;
+          buffer.push(byte);
+        }
+        bitBuffer &= (1 << bitsInBuffer) - 1;
+      }
+
+      writeCode(CLEAR_CODE);
+
+      let current = String.fromCharCode(data[0]);
+      for (let i = 1; i < data.length; i += 1) {
+        const char = String.fromCharCode(data[i]);
+        const combined = current + char;
+        if (dictionary.has(combined)) {
+          current = combined;
+        } else {
+          writeCode(dictionary.get(current));
+          if (nextCode <= MAX_CODE) {
+            dictionary.set(combined, nextCode);
+            nextCode += 1;
+            if (nextCode === (1 << codeSize) && codeSize < MAX_BITS) {
+              codeSize += 1;
+            }
+          } else {
+            writeCode(CLEAR_CODE);
+            resetDictionary();
+            codeSize = 9;
+            nextCode = 258;
+          }
+          current = char;
+        }
+      }
+
+      writeCode(dictionary.get(current));
+      writeCode(EOI_CODE);
+
+      if (bitsInBuffer > 0) {
+        buffer.push((bitBuffer << (8 - bitsInBuffer)) & 0xff);
+      }
+
+      return new Uint8Array(buffer);
+    }
+
+    function createShorts(values) {
+      const buffer = new ArrayBuffer(values.length * 2);
+      const view = new DataView(buffer);
+      values.forEach((value, index) => {
+        view.setUint16(index * 2, value, true);
+      });
+      return new Uint8Array(buffer);
+    }
+
+    function createRational(value) {
+      const safeValue = Number.isFinite(value) && value > 0 ? value : 1;
+      const denominator = 1000;
+      const numerator = Math.round(safeValue * denominator);
+      const buffer = new ArrayBuffer(8);
+      const view = new DataView(buffer);
+      view.setUint32(0, numerator, true);
+      view.setUint32(4, denominator, true);
+      return new Uint8Array(buffer);
+    }
+
+    function toFixed(value) {
+      return Number(value).toFixed(2);
+    }
+
+    async function decodePNGToImageData(uint8Array) {
+      const blob = new Blob([uint8Array], { type: 'image/png' });
+      const url = URL.createObjectURL(blob);
+      try {
+        const image = await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = url;
+        });
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(image, 0, 0);
+        return ctx.getImageData(0, 0, image.width, image.height);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    function rgbToCmyk(imageData) {
+      const { data, width, height } = imageData;
+      const total = width * height;
+      const result = new Uint8Array(total * 4);
+      for (let i = 0, j = 0; i < data.length; i += 4, j += 4) {
+        const r = data[i] / 255;
+        const g = data[i + 1] / 255;
+        const b = data[i + 2] / 255;
+        let k = 1 - Math.max(r, g, b);
+        if (k < 0) k = 0;
+        const divisor = 1 - k || 1;
+        const c = (1 - r - k) / divisor;
+        const m = (1 - g - k) / divisor;
+        const y = (1 - b - k) / divisor;
+        result[j] = Math.round((isNaN(c) ? 0 : c) * 255);
+        result[j + 1] = Math.round((isNaN(m) ? 0 : m) * 255);
+        result[j + 2] = Math.round((isNaN(y) ? 0 : y) * 255);
+        result[j + 3] = Math.round(k * 255);
+      }
+      return result;
+    }
+
+    function pad10(num) {
+      return num.toString().padStart(10, '0');
+    }
+
+    function buildPDF({ widthPx, heightPx, cmykData, dpi, pdfStandard, pdfVersion, pdfCompression }) {
+      const effectiveDpi = Math.max(dpi || 96, 1);
+      const widthPt = (widthPx / effectiveDpi) * 72;
+      const heightPt = (heightPx / effectiveDpi) * 72;
+      const requestedVersion = pdfVersion || pdfVersionSelect.value || '1.4';
+      const selectedStandard = pdfStandard && pdfStandard !== 'none' ? pdfStandard : (pdfStandardSelect.value || 'none');
+      const standardConfig = PDF_STANDARD_CONFIG[selectedStandard] || null;
+      const effectivePdfVersion = standardConfig ? ensurePdfVersion(requestedVersion, standardConfig.version) : requestedVersion;
+      const header = `%PDF-${effectivePdfVersion}\n%âãÏÓ\n`;
+      const objects = [];
+
+      const contentStream = `q\n${widthPt.toFixed(2)} 0 0 ${heightPt.toFixed(2)} 0 0 cm\n/Im0 Do\nQ\n`;
+      const contentBytes = encoder.encode(contentStream);
+      const hasStandard = !!standardConfig;
+      const profileBytes = hasStandard ? getCoatedFograProfile() : null;
+      if (hasStandard && (!profileBytes || profileBytes.length === 0)) {
+        throw new Error('ICC профиль Coated FOGRA39 недоступен.');
+      }
+
+      const CATALOG_ID = 1;
+      const PAGES_ID = 2;
+      const PAGE_ID = 3;
+      const CONTENT_ID = 4;
+      const IMAGE_ID = 5;
+      let nextObjectId = 6;
+
+      let profileObjectId = null;
+      if (hasStandard && profileBytes) {
+        profileObjectId = nextObjectId;
+        nextObjectId += 1;
+      }
+
+      let outputIntentObjectId = null;
+      if (hasStandard && profileBytes) {
+        outputIntentObjectId = nextObjectId;
+        nextObjectId += 1;
+      }
+
+      let infoObjectId = null;
+      if (hasStandard) {
+        infoObjectId = nextObjectId;
+        nextObjectId += 1;
+      }
+
+      function addPlainObject(id, body) {
+        objects.push({ id, parts: [encoder.encode(`${id} 0 obj\n${body}\nendobj\n`)] });
+      }
+
+      function addStreamObject(id, dict, streamBytes) {
+        objects.push({
+          id,
+          parts: [
+            encoder.encode(`${id} 0 obj\n${dict}\nstream\n`),
+            streamBytes,
+            encoder.encode('\nendstream\nendobj\n')
+          ]
+        });
+      }
+
+      const catalogFields = ['/Type /Catalog', '/Pages 2 0 R'];
+      if (hasStandard) {
+        catalogFields.push('/Trapped false');
+        if (outputIntentObjectId) {
+          catalogFields.push(`/OutputIntents [${outputIntentObjectId} 0 R]`);
+        }
+      }
+      addPlainObject(CATALOG_ID, `<< ${catalogFields.join(' ')} >>`);
+
+      addPlainObject(PAGES_ID, '<< /Type /Pages /Count 1 /Kids [3 0 R] >>');
+
+      addPlainObject(
+        PAGE_ID,
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${widthPt.toFixed(2)} ${heightPt.toFixed(2)}] /Contents 4 0 R /Resources << /ProcSet [/PDF /ImageC] /XObject << /Im0 5 0 R >> >> >>`
+      );
+
+      addStreamObject(CONTENT_ID, `<< /Length ${contentBytes.length} >>`, contentBytes);
+
+      const compression = pdfCompression || pdfCompressionSelect.value || 'none';
+      let imageStream = cmykData;
+      const imageDictParts = [
+        '/Type /XObject',
+        '/Subtype /Image',
+        `/Width ${widthPx}`,
+        `/Height ${heightPx}`,
+        '/ColorSpace /DeviceCMYK',
+        '/BitsPerComponent 8'
+      ];
+      if (compression === 'runLength') {
+        imageStream = runLengthEncode(cmykData);
+        imageDictParts.push('/Filter /RunLengthDecode');
+      } else if (compression === 'lzw') {
+        imageStream = lzwEncode(cmykData);
+        imageDictParts.push('/Filter /LZWDecode');
+      }
+      imageDictParts.push(`/Length ${imageStream.length}`);
+      if (profileObjectId) {
+        imageDictParts.push(`/Intent /Perceptual`);
+        imageDictParts.push(`/ColorSpace [ /ICCBased ${profileObjectId} 0 R ]`);
+      }
+      addStreamObject(IMAGE_ID, `<< ${imageDictParts.join(' ')} >>`, imageStream);
+
+      if (profileObjectId) {
+        addStreamObject(profileObjectId, `<< /N 4 /Alternate /DeviceCMYK /Length ${profileBytes.length} >>`, profileBytes);
+      }
+
+      if (outputIntentObjectId) {
+        const outputIntentFields = [
+          '/Type /OutputIntent',
+          '/S /GTS_PDFX',
+          `/OutputConditionIdentifier ${pdfString('Coated FOGRA39')}`,
+          `/Info ${pdfString('Coated FOGRA39')}`,
+          '/RegistryName (http://www.color.org)',
+          `/DestOutputProfile ${profileObjectId} 0 R`
+        ];
+        addPlainObject(outputIntentObjectId, `<< ${outputIntentFields.join(' ')} >>`);
+      }
+
+      if (infoObjectId) {
+        const infoFields = [
+          `/Producer ${pdfString('Cascade CMYK Tools for Figma')}`,
+          `/Creator ${pdfString('Cascade CMYK Tools for Figma')}`
+        ];
+        if (standardConfig) {
+          infoFields.push(`/GTS_PDFXVersion ${pdfString(standardConfig.pdfxVersion)}`);
+          infoFields.push(`/GTS_PDFXConformance ${pdfString(standardConfig.conformance)}`);
+        }
+        addPlainObject(infoObjectId, `<< ${infoFields.join(' ')} >>`);
+      }
+
+      const headerBytes = encoder.encode(header);
+      const chunks = [headerBytes];
+      const xrefOffsets = [0];
+      let offset = headerBytes.length;
+
+      const sortedObjects = objects.sort((a, b) => a.id - b.id);
+      for (const object of sortedObjects) {
+        xrefOffsets.push(offset);
+        for (const part of object.parts) {
+          chunks.push(part);
+          offset += part.length;
+        }
+      }
+
+      const xrefStart = offset;
+      const xrefHeader = encoder.encode(`xref\n0 ${xrefOffsets.length}\n`);
+      chunks.push(xrefHeader);
+      offset += xrefHeader.length;
+
+      for (let i = 0; i < xrefOffsets.length; i += 1) {
+        const entryBytes = encoder.encode(`${pad10(xrefOffsets[i])} 00000 ${i === 0 ? 'f' : 'n'} \n`);
+        chunks.push(entryBytes);
+        offset += entryBytes.length;
+      }
+
+      const trailerFields = [`/Size ${xrefOffsets.length}`, '/Root 1 0 R'];
+      if (infoObjectId) {
+        trailerFields.push(`/Info ${infoObjectId} 0 R`);
+      }
+      const trailerBytes = encoder.encode(`trailer\n<< ${trailerFields.join(' ')} >>\nstartxref\n${xrefStart}\n%%EOF`);
+      chunks.push(trailerBytes);
+
+      let totalLength = 0;
+      for (const chunk of chunks) {
+        totalLength += chunk.length;
+      }
+      const result = new Uint8Array(totalLength);
+      let position = 0;
+      for (const chunk of chunks) {
+        result.set(chunk, position);
+        position += chunk.length;
+      }
+      return new Blob([result], { type: 'application/pdf' });
+    }
+
+    function buildTIFF({ widthPx, heightPx, cmykData, dpi, tiffCompression, tiffDpi }) {
+      const compression = tiffCompression || tiffCompressionSelect.value || 'none';
+      const targetDpi = Math.max(dpi || tiffDpi || parseInt(tiffDpiInput.value, 10) || 300, 1);
+      const littleEndian = true;
+
+      let imageBytes = cmykData;
+      if (compression === 'lzw') {
+        imageBytes = lzwEncode(imageBytes);
+      }
+
+      const entries = [];
+      const profileBytes = getCoatedFograProfile();
+
+      function u32(value) {
+        const buffer = new ArrayBuffer(4);
+        new DataView(buffer).setUint32(0, value, littleEndian);
+        return new Uint8Array(buffer);
+      }
+
+      function u16(value) {
+        const buffer = new ArrayBuffer(2);
+        new DataView(buffer).setUint16(0, value, littleEndian);
+        return new Uint8Array(buffer);
+      }
+
+      function addEntry(tag, type, count, valueBytes, extraBytes) {
+        entries.push({ tag, type, count, valueBytes, extraBytes });
+      }
+
+      const compressionCode = compression === 'lzw' ? 5 : 1;
+
+      addEntry(256, 4, 1, u32(widthPx));
+      addEntry(257, 4, 1, u32(heightPx));
+      addEntry(258, 3, 4, null, createShorts([8, 8, 8, 8]));
+      addEntry(259, 3, 1, u16(compressionCode));
+      addEntry(262, 3, 1, u16(5));
+      addEntry(273, 4, 1, null, imageBytes);
+      addEntry(277, 3, 1, u16(4));
+      addEntry(278, 4, 1, u32(heightPx));
+      addEntry(279, 4, 1, u32(imageBytes.length));
+      addEntry(282, 5, 1, null, createRational(targetDpi));
+      addEntry(283, 5, 1, null, createRational(targetDpi));
+      addEntry(284, 3, 1, u16(1));
+      addEntry(296, 3, 1, u16(2));
+      addEntry(305, 2, 'Cascade CMYK Tools'.length + 1, encoder.encode('Cascade CMYK Tools\0'));
+      if (profileBytes && profileBytes.length > 0) {
+        addEntry(34675, 7, profileBytes.length, null, profileBytes);
+      }
+
+      function alignedLength(length) {
+        return length % 2 === 0 ? length : length + 1;
+      }
+
+      const headerSize = 8;
+      const entryCount = entries.length;
+      const baseSize = headerSize + 2 + entryCount * 12 + 4;
+      let extraSize = 0;
+      for (const entry of entries) {
+        if (entry.extraBytes && entry.extraBytes.length > 0) {
+          extraSize += alignedLength(entry.extraBytes.length);
+        } else if (entry.valueBytes && entry.valueBytes.length > 4) {
+          extraSize += alignedLength(entry.valueBytes.length);
+        }
+      }
+
+      const totalSize = baseSize + extraSize;
+      const buffer = new ArrayBuffer(totalSize);
+      const view = new DataView(buffer);
+      let offset = 0;
+
+      view.setUint8(offset, 0x49);
+      offset += 1;
+      view.setUint8(offset, 0x49);
+      offset += 1;
+      view.setUint16(offset, 42, littleEndian);
+      offset += 2;
+      view.setUint32(offset, headerSize, littleEndian);
+      offset += 4;
+
+      view.setUint16(offset, entryCount, littleEndian);
+      offset += 2;
+
+      let dataOffset = baseSize;
+      for (const entry of entries) {
+        const { tag, type, count, valueBytes, extraBytes } = entry;
+        view.setUint16(offset, tag, littleEndian);
+        view.setUint16(offset + 2, type, littleEndian);
+        view.setUint32(offset + 4, count, littleEndian);
+
+        if (extraBytes && extraBytes.length > 0) {
+          view.setUint32(offset + 8, dataOffset, littleEndian);
+          new Uint8Array(buffer, dataOffset, extraBytes.length).set(extraBytes);
+          dataOffset += alignedLength(extraBytes.length);
+        } else {
+          const bytes = valueBytes || new Uint8Array(0);
+          for (let i = 0; i < 4; i += 1) {
+            view.setUint8(offset + 8 + i, bytes[i] || 0);
+          }
+        }
+
+        offset += 12;
+      }
+
+      view.setUint32(offset, 0, littleEndian);
+
+      return new Blob([buffer], { type: 'image/tiff' });
+    }
+
+    function saveBlob(blob, filename) {
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(link.href);
+        document.body.removeChild(link);
+      }, 1000);
+    }
+
+    async function exportViaServer(item, options) {
+      const {
+        format,
+        dpi,
+        pdfVersion,
+        pdfStandard,
+        pdfCompression,
+        tiffCompression,
+        tiffDpi,
+        serverUrl
+      } = options;
+      let endpoint;
+      try {
+        endpoint = new URL('/convert', serverUrl).toString();
+      } catch (error) {
+        throw new Error('Некорректный URL сервера.');
+      }
+
+      const pngArray = item.data instanceof Uint8Array ? item.data : new Uint8Array(item.data);
+      const pngBlob = new Blob([pngArray], { type: 'image/png' });
+      const formData = new FormData();
+      formData.append('format', format);
+      formData.append('name', item.name || 'export');
+      formData.append('dpi', dpi);
+      formData.append('pdfVersion', pdfVersion || '1.4');
+      formData.append('pdfStandard', pdfStandard || 'none');
+      formData.append('pdfCompression', pdfCompression || 'none');
+      formData.append('tiffCompression', tiffCompression || 'none');
+      formData.append('tiffDpi', tiffDpi || 300);
+      formData.append('image', pngBlob, `${item.name || 'export'}.png`);
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        let errorText = '';
+        try {
+          const data = await response.json();
+          errorText = data && data.error ? data.error : '';
+        } catch (err) {
+          errorText = await response.text();
+        }
+        const details = errorText ? `: ${errorText}` : '';
+        throw new Error(`Сервер вернул ошибку ${response.status}${details}`);
+      }
+
+      return response.blob();
+    }
+
+    async function processExportResult(message) {
+      const {
+        items,
+        format,
+        dpi,
+        pdfStandard,
+        pdfVersion,
+        pdfCompression,
+        tiffCompression,
+        tiffDpi,
+        useServer,
+        serverUrl
+      } = message;
+
+      for (const item of items) {
+        const { name, data, widthPx, heightPx } = item;
+        const exportName = name || 'export';
+        try {
+          if (useServer && serverUrl) {
+            const resultBlob = await exportViaServer(item, {
+              format,
+              dpi,
+              pdfVersion,
+              pdfStandard,
+              pdfCompression,
+              tiffCompression,
+              tiffDpi,
+              serverUrl
+            });
+            const extension = format === 'pdf' ? 'pdf' : 'tiff';
+            saveBlob(resultBlob, `${exportName}.${extension}`);
+            continue;
+          }
+
+          const imageData = await decodePNGToImageData(data);
+          const cmykData = rgbToCmyk(imageData);
+          if (format === 'pdf') {
+            const pdfBlob = buildPDF({ widthPx, heightPx, cmykData, dpi, pdfStandard, pdfVersion, pdfCompression });
+            saveBlob(pdfBlob, `${exportName}.pdf`);
+          } else {
+            const tiffBlob = buildTIFF({ widthPx, heightPx, cmykData, dpi, tiffCompression, tiffDpi });
+            saveBlob(tiffBlob, `${exportName}.tiff`);
+          }
+        } catch (error) {
+          console.error('Ошибка обработки элемента', exportName, error);
+          alert(`Не удалось экспортировать «${exportName}»: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+        }
+      }
+    }
+
+    addEventListener('message', (event) => {
+      const message = event.data.pluginMessage;
+      if (!message) {
+        return;
+      }
+      switch (message.type) {
+        case 'selection-change': {
+          const { width, height, resizable, selectionCount, distances } = message;
+          selectionResizable = !!resizable;
+          if (typeof width === 'number' && typeof height === 'number') {
+            widthInput.value = toFixed(width);
+            heightInput.value = toFixed(height);
+            setApplySizeState(selectionResizable);
+            selectionRatio = height !== 0 ? width / height : null;
+          } else {
+            widthInput.value = '';
+            heightInput.value = '';
+            setApplySizeState(false);
+            selectionRatio = null;
+          }
+          setDistanceList(distances);
+          break;
+        }
+        case 'size-update': {
+          if (!message.success) {
+            alert(message.error || 'Не удалось изменить размеры');
+          }
+          break;
+        }
+        case 'export-result': {
+          setExportState(false);
+          if (!message.success) {
+            alert(message.error || 'Ошибка экспорта');
+            return;
+          }
+          processExportResult(message).catch((error) => {
+            console.error(error);
+            alert('Не удалось выполнить экспорт.');
+          });
+          break;
+        }
+        case 'theme-change': {
+          if (manualThemeOverride == null) {
+            const colorScheme = message.colorScheme === 'dark' ? 'dark' : 'light';
+            updateThemeVisual(colorScheme);
+          }
+          break;
+        }
+        case 'ui-dimensions': {
+          const { width, minWidth, maxWidth, height, minHeight, maxHeight } = message;
+          const clampedWidth = Math.min(Math.max(width || 0, minWidth || 280), maxWidth || 720);
+          const clampedHeight = Math.min(Math.max(height || 0, minHeight || 360), maxHeight || 900);
+          if (uiWidthInput) {
+            uiWidthInput.min = minWidth;
+            uiWidthInput.max = maxWidth;
+            uiWidthInput.value = String(clampedWidth);
+          }
+          if (uiWidthRange) {
+            uiWidthRange.min = minWidth;
+            uiWidthRange.max = maxWidth;
+            uiWidthRange.value = String(clampedWidth);
+          }
+          if (uiHeightInput) {
+            uiHeightInput.min = minHeight;
+            uiHeightInput.max = maxHeight;
+            uiHeightInput.value = String(clampedHeight);
+          }
+          if (uiHeightRange) {
+            uiHeightRange.min = minHeight;
+            uiHeightRange.max = maxHeight;
+            uiHeightRange.value = String(clampedHeight);
+          }
+          break;
+        }
+        case 'ui-preferences': {
+          isApplyingPreferences = true;
+          const { uiScale, sizePreset, themeOverride } = message;
+          if (uiScaleSelect && typeof uiScale === 'string') {
+            uiScaleSelect.value = uiScale;
+            applyUiScale(uiScale);
+          }
+          if (uiSizeSelect && typeof sizePreset === 'string') {
+            uiSizeSelect.value = sizePreset;
+          }
+          if (typeof themeOverride === 'string') {
+            manualThemeOverride = themeOverride;
+            updateThemeVisual(themeOverride);
+          } else {
+            manualThemeOverride = null;
+          }
+          isApplyingPreferences = false;
+          break;
+        }
+        default:
+          break;
+      }
+    });
+
+    applySizeButton.addEventListener('click', () => {
+      const width = parseFloat(widthInput.value);
+      const height = parseFloat(heightInput.value);
+      if (!isNaN(width) && !isNaN(height)) {
+        if (!selectionResizable) {
+          alert('Объект нельзя масштабировать напрямую.');
+          return;
+        }
+        post('apply-size-mm', { width, height });
+      }
+    });
+
+    function syncDimensions(changed) {
+      if (selectionRatio == null || !lockProportionsCheckbox.checked) {
+        return;
+      }
+      if (isSyncingDimensions) {
+        return;
+      }
+      const widthValue = parseFloat(widthInput.value);
+      const heightValue = parseFloat(heightInput.value);
+      if (Number.isNaN(widthValue) || Number.isNaN(heightValue)) {
+        return;
+      }
+      isSyncingDimensions = true;
+      if (changed === 'width' && selectionRatio !== 0) {
+        heightInput.value = toFixed(widthValue / selectionRatio);
+      } else if (changed === 'height') {
+        widthInput.value = toFixed(heightValue * selectionRatio);
+      }
+      isSyncingDimensions = false;
+    }
+
+    widthInput.addEventListener('input', () => syncDimensions('width'));
+    heightInput.addEventListener('input', () => syncDimensions('height'));
+
+    lockProportionsCheckbox.addEventListener('change', () => {
+      if (lockProportionsCheckbox.checked) {
+        const currentWidth = parseFloat(widthInput.value);
+        const currentHeight = parseFloat(heightInput.value);
+        if (!Number.isNaN(currentWidth) && !Number.isNaN(currentHeight) && currentHeight !== 0) {
+          selectionRatio = currentWidth / currentHeight;
+        }
+      }
+    });
+
+    function applyUiScale(scale) {
+      const allowed = ['small', 'medium', 'large'];
+      if (!allowed.includes(scale)) {
+        scale = 'medium';
+      }
+      bodyElement.dataset.uiScale = scale;
+    }
+
+    uiScaleSelect.addEventListener('change', () => {
+      if (isApplyingPreferences) {
+        return;
+      }
+      applyUiScale(uiScaleSelect.value);
+      post('set-ui-scale', { scale: uiScaleSelect.value });
+    });
+
+    uiSizeSelect.addEventListener('change', () => {
+      if (isApplyingPreferences) {
+        return;
+      }
+      post('set-ui-size', { size: uiSizeSelect.value });
+    });
+
+    function postUiWidth(value) {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) {
+        post('set-ui-width', { width: numeric });
+      }
+    }
+
+    uiWidthInput.addEventListener('change', () => {
+      postUiWidth(uiWidthInput.value);
+    });
+
+    uiWidthInput.addEventListener('input', () => {
+      if (uiWidthRange) {
+        uiWidthRange.value = uiWidthInput.value;
+      }
+    });
+
+    uiWidthRange.addEventListener('input', () => {
+      if (uiWidthInput) {
+        uiWidthInput.value = uiWidthRange.value;
+      }
+      postUiWidth(uiWidthRange.value);
+    });
+
+    function postUiHeight(value) {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) {
+        post('set-ui-height', { height: numeric });
+      }
+    }
+
+    uiHeightInput.addEventListener('change', () => {
+      postUiHeight(uiHeightInput.value);
+    });
+
+    uiHeightInput.addEventListener('input', () => {
+      if (uiHeightRange) {
+        uiHeightRange.value = uiHeightInput.value;
+      }
+    });
+
+    uiHeightRange.addEventListener('input', () => {
+      if (uiHeightInput) {
+        uiHeightInput.value = uiHeightRange.value;
+      }
+      postUiHeight(uiHeightRange.value);
+    });
+
+    toggleThemeButton.addEventListener('click', () => {
+      const current = manualThemeOverride != null ? manualThemeOverride : (bodyElement.dataset.theme || 'light');
+      const next = current === 'dark' ? 'light' : 'dark';
+      manualThemeOverride = next;
+      updateThemeVisual(next);
+      post('set-theme-override', { theme: next });
+    });
+
+    toggleSettingsButton.addEventListener('click', () => {
+      setSettingsVisibility(!settingsExpanded);
+    });
+
+    exportButton.addEventListener('click', () => {
+      setExportState(true);
+      const exportFormat = formatSelect.value;
+      const payload = { format: exportFormat };
+      const useServer = hasServerControls ? useServerCheckbox.checked : false;
+      payload.serverUrl = useServer ? DEFAULT_SERVER_URL : '';
+      payload.useServer = useServer;
+      if (exportFormat === 'pdf') {
+        payload.pdfVersion = pdfVersionSelect.value;
+        payload.pdfCompression = pdfCompressionSelect.value;
+        payload.pdfStandard = pdfStandardSelect.value;
+      } else {
+        payload.tiffCompression = tiffCompressionSelect.value;
+        payload.tiffDpi = Math.max(parseInt(tiffDpiInput.value, 10) || 300, 1);
+      }
+      const dpiValue = parseInt(tiffDpiInput.value, 10);
+      payload.dpi = Math.max(Number.isFinite(dpiValue) ? dpiValue : 96, 1);
+      post('export-cmyk', payload);
+    });
+
+    if (hasServerControls) {
+      useServerCheckbox.addEventListener('change', () => {
+        // Нет дополнительных элементов для включения/отключения.
+      });
+    }
+
+    formatSelect.addEventListener('change', () => {
+      const format = formatSelect.value;
+      if (format === 'pdf') {
+        pdfOptionsBlock.classList.remove('hidden');
+        tiffOptionsBlock.classList.add('hidden');
+      } else {
+        pdfOptionsBlock.classList.add('hidden');
+        tiffOptionsBlock.classList.remove('hidden');
+      }
+    });
+
+    applyUiScale(bodyElement.dataset.uiScale || 'medium');
+    updateThemeVisual(bodyElement.dataset.theme || 'light');
+    setSettingsVisibility(false);
+    post('request-theme');
+    post('request-ui-dimensions');
+    post('request-ui-preferences');
+  </script>
+</body>
+</html>
