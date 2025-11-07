@@ -66,6 +66,46 @@
       display: none !important;
     }
 
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 23, 42, 0.25);
+      backdrop-filter: blur(2px);
+      z-index: 1000;
+    }
+
+    .loading-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 20px 24px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+      color: var(--fg);
+      font-size: 0.95em;
+    }
+
+    .loading-spinner {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 3px solid color-mix(in srgb, var(--accent) 40%, transparent);
+      border-top-color: var(--accent);
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
     body[data-theme="dark"] {
       color-scheme: dark;
       --bg: #1f2225;
@@ -466,6 +506,13 @@
     </section>
   </main>
 
+  <div id="export-loading" class="loading-overlay hidden" aria-hidden="true">
+    <div class="loading-card" role="status" aria-live="polite">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <p>Идёт экспорт…</p>
+    </div>
+  </div>
+
   <script>
     const widthInput = document.getElementById('width-mm');
     const heightInput = document.getElementById('height-mm');
@@ -492,6 +539,7 @@
     const uiWidthRange = document.getElementById('ui-width-range');
     const uiHeightInput = document.getElementById('ui-height');
     const uiHeightRange = document.getElementById('ui-height-range');
+    const exportOverlay = document.getElementById('export-loading');
     const hasServerControls = !!useServerCheckbox;
     let selectionResizable = false;
     let selectionRatio = null;
@@ -575,9 +623,18 @@
     function setExportState(isExporting) {
       exportButton.disabled = isExporting;
       exportButton.textContent = isExporting ? 'Экспорт...' : 'Экспортировать выделение';
+      if (exportOverlay) {
+        if (isExporting) {
+          exportOverlay.classList.remove('hidden');
+          exportOverlay.setAttribute('aria-hidden', 'false');
+        } else {
+          exportOverlay.classList.add('hidden');
+          exportOverlay.setAttribute('aria-hidden', 'true');
+        }
+      }
     }
 
-    const DEFAULT_SERVER_URL = 'http://localhost:3001';
+    const DEFAULT_SERVER_URL = 'https://figmapluginillustrator.up.railway.app';
 
     const encoder = new TextEncoder();
     const PDF_STANDARD_CONFIG = {
