@@ -1,14 +1,23 @@
 {
-  "name": "Нафиг иллюстратор",
-  "id": "cmyk-mm-tools",
+  "name": "Figmastrator",
+  "id": "1568696059989413803",
   "api": "1.0.0",
   "main": "code.js",
   "ui": "ui.html",
+  "documentAccess": "dynamic-page",
   "editorType": ["figma"],
   "relaunchButtons": [
     {
       "command": "open",
-      "name": "Нафиг иллюстратор"
+      "name": "Figmastrator"
     }
-  ]
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "https://figmapluginillustrator.up.railway.app"
+    ],
+    "devAllowedDomains": [
+      "http://localhost:3001"
+    ]
+  }
 }
