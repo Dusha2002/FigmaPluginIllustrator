@@ -515,13 +515,14 @@ async function buildTiff(buffer, { compression, dpi }) {
   };
   const targetCompression = compressionMap[compression] || 'none';
   const targetDpi = Math.max(parseFloat(dpi) || DEFAULT_DPI, 1);
+  const targetPixelsPerMm = targetDpi / 25.4;
   return sharp(buffer)
     .withMetadata({ icc: profilePath })
     .toColorspace('cmyk')
     .tiff({
       compression: targetCompression,
-      xres: targetDpi,
-      yres: targetDpi,
+      xres: targetPixelsPerMm,
+      yres: targetPixelsPerMm,
       resolutionUnit: 'inch'
     })
     .toBuffer();

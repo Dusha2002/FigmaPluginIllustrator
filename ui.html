@@ -529,8 +529,8 @@
             </select>
           </label>
           <label>
-            DPI
-            <input id="tiff-dpi" type="number" min="1" value="96" />
+            PPI
+            <input id="tiff-ppi" type="number" min="1" value="300" />
           </label>
         </div>
       </div>
@@ -561,7 +561,7 @@
     const pdfCompressionSelect = document.getElementById('pdf-compression');
     const pdfStandardSelect = document.getElementById('pdf-standard');
     const tiffCompressionSelect = document.getElementById('tiff-compression');
-    const tiffDpiInput = document.getElementById('tiff-dpi');
+    const tiffPpiInput = document.getElementById('tiff-ppi');
     const lockProportionsCheckbox = document.getElementById('lock-proportions');
     const uiScaleSelect = document.getElementById('ui-scale');
     const uiSizeSelect = document.getElementById('ui-size');
@@ -1644,14 +1644,24 @@
         payload.pdfStandard = pdfStandardSelect.value;
         payload.dpi = baseDpi;
       } else {
-        const dpiValue = parseInt(tiffDpiInput.value, 10);
-        const tiffDpi = Math.max(Number.isFinite(dpiValue) ? dpiValue : baseDpi, 1);
+        const ppiValue = parseInt(tiffPpiInput.value, 10);
+        const tiffPpi = Math.max(Number.isFinite(ppiValue) ? ppiValue : baseDpi, 1);
         payload.tiffCompression = tiffCompressionSelect.value;
-        payload.tiffDpi = tiffDpi;
-        payload.dpi = tiffDpi;
+        payload.tiffDpi = tiffPpi;
+        payload.dpi = tiffPpi;
       }
       post('export-cmyk', payload);
     });
+
+    if (tiffPpiInput) {
+      const handlePpiInputChange = () => {
+        const numeric = parseInt(tiffPpiInput.value, 10);
+        if (!Number.isFinite(numeric)) {
+          tiffPpiInput.value = '300';
+        }
+      };
+      tiffPpiInput.addEventListener('change', handlePpiInputChange);
+    }
 
     formatSelect.addEventListener('change', () => {
       const format = formatSelect.value;
