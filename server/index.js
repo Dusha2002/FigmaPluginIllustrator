@@ -63,6 +63,61 @@ function bufferFromChunks(chunks) {
   return Buffer.concat(chunks);
 }
 
+async function convertSvgToPdf(svgBuffer, { widthPx, heightPx }) {
+  const fsAsync = fs.promises;
+  const tempDir = await fsAsync.mkdtemp(path.join(os.tmpdir(), 'svg-to-pdf-'));
+  const inputPath = path.join(tempDir, 'input.svg');
+  const outputPath = path.join(tempDir, 'output.pdf');
+
+  try {
+    await fsAsync.writeFile(inputPath, svgBuffer);
+
+    const args = ['-f', 'pdf', '-o', outputPath, inputPath];
+    const widthValue = Number.parseInt(widthPx, 10);
+    const heightValue = Number.parseInt(heightPx, 10);
+    if (Number.isFinite(widthValue) && widthValue > 0) {
+      args.unshift(widthValue.toString(), '-w');
+    }
+    if (Number.isFinite(heightValue) && heightValue > 0) {
+      args.unshift(heightValue.toString(), '-h');
+    }
+
+    await new Promise((resolve, reject) => {
+      const rsvgProcess = spawn('rsvg-convert', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+
+      rsvgProcess.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      rsvgProcess.on('error', (error) => {
+        if (error.code === 'ENOENT') {
+          reject(new Error('rsvg-convert не установлен или недоступен. Установите пакет librsvg2-bin.'));
+        } else {
+          reject(error);
+        }
+      });
+
+      rsvgProcess.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`rsvg-convert завершился с кодом ${code}.${stderr ? ` Детали: ${stderr.trim()}` : ''}`));
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    const pdfBuffer = await fsAsync.readFile(outputPath);
+    return pdfBuffer;
+  } finally {
+    try {
+      await fsAsync.rm(tempDir, { recursive: true, force: true });
+    } catch (cleanupError) {
+      console.warn('Не удалось удалить временную директорию преобразования SVG:', cleanupError);
+    }
+  }
+}
+
 async function convertPdfToCmyk(pdfBuffer, { pdfVersion, pdfStandard }) {
   const fsAsync = fs.promises;
   const tempDir = await fsAsync.mkdtemp(path.join(os.tmpdir(), 'cmyk-pdf-'));
@@ -546,7 +601,41 @@ function buildPDF({
   return bufferFromChunks(chunks);
 }
 
-function convertToCmykRaw(buffer) {
+async function applyTiffAntialias(buffer, mode) {
+  const antialiasMode = typeof mode === 'string' ? mode : 'none';
+  if (antialiasMode === 'none') {
+    return buffer;
+  }
+
+  try {
+    const metadata = await sharp(buffer).metadata();
+    const width = metadata.width || 0;
+    const height = metadata.height || 0;
+    if (width <= 0 || height <= 0) {
+      return buffer;
+    }
+
+    if (antialiasMode === 'best-objects') {
+      const upscaleFactor = 2;
+      return sharp(buffer)
+        .resize(Math.round(width * upscaleFactor), Math.round(height * upscaleFactor), { kernel: sharp.kernel.lanczos3 })
+        .resize(width, height, { kernel: sharp.kernel.lanczos3 })
+        .toBuffer();
+    }
+
+    if (antialiasMode === 'best-type') {
+      return sharp(buffer)
+        .sharpen({ sigma: 1 })
+        .toBuffer();
+    }
+  } catch (error) {
+    console.warn('Антиалиасинг TIFF не выполнен:', error);
+  }
+
+  return buffer;
+}
+
+async function convertToCmykRaw(buffer) {
   return new Promise((resolve, reject) => {
     const png = new PNG();
     png.parse(buffer, (error, data) => {
@@ -586,7 +675,7 @@ function convertToCmykRaw(buffer) {
   });
 }
 
-async function buildTiff(buffer, { compression, dpi }) {
+async function buildTiff(buffer, { compression, dpi, antialias }) {
   const profilePath = PROFILE_PATH;
   const compressionMap = {
     none: 'none',
@@ -595,7 +684,8 @@ async function buildTiff(buffer, { compression, dpi }) {
   const targetCompression = compressionMap[compression] || 'none';
   const targetDpi = Math.max(parseFloat(dpi) || DEFAULT_DPI, 1);
   const targetPixelsPerMm = targetDpi / 25.4;
-  return sharp(buffer)
+  const processedBuffer = await applyTiffAntialias(buffer, antialias);
+  return sharp(processedBuffer)
     .withMetadata({ icc: profilePath })
     .toColorspace('cmyk')
     .tiff({
@@ -622,15 +712,28 @@ app.post('/convert', upload.single('image'), async (req, res) => {
   const dpi = parseFloat(req.body.dpi) || DEFAULT_DPI;
   const pdfVersion = req.body.pdfVersion || '1.4';
   const pdfStandard = req.body.pdfStandard || 'none';
-  const pdfCompression = req.body.pdfCompression || 'none';
   const tiffCompression = req.body.tiffCompression || 'none';
+  const tiffAntialias = req.body.tiffAntialias || 'none';
   const tiffDpi = parseFloat(req.body.tiffDpi) || dpi || DEFAULT_DPI;
 
   try {
     if (format === 'pdf') {
-      const isPdfUpload =
-        (req.file.mimetype && req.file.mimetype.toLowerCase() === 'application/pdf') ||
-        path.extname(req.file.originalname || '').toLowerCase() === '.pdf';
+      const fileName = req.file.originalname || '';
+      const mimetype = (req.file.mimetype || '').toLowerCase();
+      const ext = path.extname(fileName).toLowerCase();
+      const isSvgUpload = mimetype.includes('svg') || ext === '.svg';
+      const isPdfUpload = mimetype === 'application/pdf' || ext === '.pdf';
+
+      if (isSvgUpload) {
+        const widthPx = Number.parseInt(req.body.widthPx, 10);
+        const heightPx = Number.parseInt(req.body.heightPx, 10);
+        const intermediatePdf = await convertSvgToPdf(req.file.buffer, { widthPx, heightPx });
+        const pdfBuffer = await convertPdfToCmyk(intermediatePdf, { pdfVersion, pdfStandard });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${baseName}.pdf"`);
+        res.send(pdfBuffer);
+        return;
+      }
 
       if (isPdfUpload) {
         const pdfBuffer = await convertPdfToCmyk(req.file.buffer, { pdfVersion, pdfStandard });
@@ -640,7 +743,7 @@ app.post('/convert', upload.single('image'), async (req, res) => {
         return;
       }
 
-      console.warn('Получен формат, отличный от PDF, выполняется растровое преобразование.');
+      console.warn('Получен формат, отличный от PDF и SVG, выполняется растровое преобразование.');
       const {
         cmykData,
         alphaData,
@@ -656,8 +759,7 @@ app.post('/convert', upload.single('image'), async (req, res) => {
         heightPx: height,
         dpi,
         pdfVersion,
-        pdfStandard,
-        pdfCompression
+        pdfStandard
       });
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${baseName}.pdf"`);
@@ -665,7 +767,8 @@ app.post('/convert', upload.single('image'), async (req, res) => {
     } else if (format === 'tiff') {
       const tiffBuffer = await buildTiff(req.file.buffer, {
         compression: tiffCompression,
-        dpi: tiffDpi
+        dpi: tiffDpi,
+        antialias: tiffAntialias
       });
       res.setHeader('Content-Type', 'image/tiff');
       res.setHeader('Content-Disposition', `attachment; filename="${baseName}.tiff"`);

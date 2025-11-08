@@ -4,9 +4,9 @@ FROM node:20-bullseye
 # Create app directory
 WORKDIR /app
 
-# Install Ghostscript for PDF конвертации
+# Install Ghostscript и librsvg для конвертации PDF и SVG
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ghostscript \
+  && apt-get install -y --no-install-recommends ghostscript librsvg2-bin \
   && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies first (better layer caching)

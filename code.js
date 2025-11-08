@@ -411,11 +411,11 @@ async function exportSelection(settings) {
   const pdfVersion = exportFormat === 'pdf' && settings && typeof settings.pdfVersion === 'string'
     ? settings.pdfVersion
     : '1.4';
-  const pdfCompression = exportFormat === 'pdf' && settings && typeof settings.pdfCompression === 'string'
-    ? settings.pdfCompression
-    : 'none';
   const tiffCompression = exportFormat === 'tiff' && settings && typeof settings.tiffCompression === 'string'
     ? settings.tiffCompression
+    : 'none';
+  const tiffAntialias = exportFormat === 'tiff' && settings && typeof settings.tiffAntialias === 'string'
+    ? settings.tiffAntialias
     : 'none';
   const tiffDpi = requestedDpi;
   const useServer = true;
@@ -435,7 +435,7 @@ async function exportSelection(settings) {
     }
     const exportSettings = exportFormat === 'pdf'
       ? {
-        format: 'PDF',
+        format: 'SVG',
         useAbsoluteBounds: true
       }
       : {
@@ -469,10 +469,10 @@ async function exportSelection(settings) {
     dpi: effectiveDpi,
     pdfStandard,
     pdfVersion,
-    pdfCompression,
     tiffCompression,
+    tiffAntialias,
     tiffDpi: tiffDpi,
-    useServer: exportFormat !== 'pdf' && useServer,
+    useServer: true,
     serverUrl
   };
 }
@@ -513,8 +513,8 @@ figma.ui.onmessage = async (message) => {
           dpi: result.dpi,
           pdfStandard: result.pdfStandard,
           pdfVersion: result.pdfVersion,
-          pdfCompression: result.pdfCompression,
           tiffCompression: result.tiffCompression,
+          tiffAntialias: result.tiffAntialias,
           tiffDpi: result.tiffDpi,
           useServer: result.useServer,
           serverUrl: result.serverUrl
