@@ -4,3 +4,5 @@ README.md
 .git
 .gitignore
 *.local
+
+server-java/Dockerfile
