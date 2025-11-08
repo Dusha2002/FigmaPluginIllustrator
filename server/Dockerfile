@@ -4,6 +4,11 @@ FROM node:20-bullseye
 # Create app directory
 WORKDIR /app
 
+# Install Ghostscript for PDF конвертации
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ghostscript \
+  && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies first (better layer caching)
 COPY package*.json ./
 RUN npm install --production

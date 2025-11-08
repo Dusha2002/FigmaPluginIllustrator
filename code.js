@@ -433,11 +433,16 @@ async function exportSelection(settings) {
     if (!('exportAsync' in node)) {
       continue;
     }
-    const exportSettings = {
-      format: 'PNG',
-      useAbsoluteBounds: true
-    };
-    if (Math.abs(scale - 1) > 0.0001) {
+    const exportSettings = exportFormat === 'pdf'
+      ? {
+        format: 'PDF',
+        useAbsoluteBounds: true
+      }
+      : {
+        format: 'PNG',
+        useAbsoluteBounds: true
+      };
+    if (exportFormat !== 'pdf' && Math.abs(scale - 1) > 0.0001) {
       exportSettings.constraint = { type: 'SCALE', value: scale };
     }
     const bytes = await node.exportAsync(exportSettings);
@@ -467,7 +472,7 @@ async function exportSelection(settings) {
     pdfCompression,
     tiffCompression,
     tiffDpi: tiffDpi,
-    useServer,
+    useServer: exportFormat !== 'pdf' && useServer,
     serverUrl
   };
 }

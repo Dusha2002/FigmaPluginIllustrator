@@ -3,11 +3,17 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { spawn } = require('child_process');
 const { PNG } = require('pngjs');
 const sharp = require('sharp');
 
 const app = express();
 app.use(cors());
+
+if (!process.env.CASC_ADMIN_NOTICE_SHOWN) {
+  console.log('Для конвертации PDF в CMYK требуется установленный Ghostscript (пакет ghostscript в Docker).');
+}
 
 const PROFILE_PATH = path.join(__dirname, '..', 'CoatedFOGRA39.icc');
 let coatedFograProfileBytes = null;
@@ -55,6 +61,79 @@ function pad10(num) {
 
 function bufferFromChunks(chunks) {
   return Buffer.concat(chunks);
+}
+
+async function convertPdfToCmyk(pdfBuffer, { pdfVersion, pdfStandard }) {
+  const fsAsync = fs.promises;
+  const tempDir = await fsAsync.mkdtemp(path.join(os.tmpdir(), 'cmyk-pdf-'));
+  const inputPath = path.join(tempDir, 'input.pdf');
+  const outputPath = path.join(tempDir, 'output.pdf');
+
+  try {
+    await fsAsync.writeFile(inputPath, pdfBuffer);
+
+    const selectedStandard = pdfStandard && pdfStandard !== 'none' ? pdfStandard : 'none';
+    const standardConfig = PDF_STANDARD_CONFIG[selectedStandard] || null;
+    const requestedVersion = pdfVersion || '1.4';
+    const effectiveVersion = standardConfig
+      ? ensurePdfVersion(requestedVersion, standardConfig.version)
+      : requestedVersion;
+
+    const profilePath = PROFILE_PATH.replace(/\\/g, '/');
+    const normalizedOutputPath = outputPath.replace(/\\/g, '/');
+    const normalizedInputPath = inputPath.replace(/\\/g, '/');
+
+    const args = [
+      '-dSAFER',
+      '-dBATCH',
+      '-dNOPAUSE',
+      '-dNOPROMPT',
+      '-sDEVICE=pdfwrite',
+      `-dCompatibilityLevel=${effectiveVersion}`,
+      '-dProcessColorModel=/DeviceCMYK',
+      '-sColorConversionStrategy=CMYK',
+      '-sColorConversionStrategyForImages=CMYK',
+      '-dOverrideICC',
+      '-dUseCIEColor',
+      `-sOutputICCProfile=${profilePath}`,
+      `-sOutputFile=${normalizedOutputPath}`,
+      normalizedInputPath
+    ];
+
+    await new Promise((resolve, reject) => {
+      const gsProcess = spawn('gs', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+
+      gsProcess.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      gsProcess.on('error', (error) => {
+        if (error.code === 'ENOENT') {
+          reject(new Error('Ghostscript не установлен или недоступен в PATH. Установите Ghostscript и перезапустите сервер.'));
+        } else {
+          reject(error);
+        }
+      });
+
+      gsProcess.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Ghostscript завершился с кодом ${code}.${stderr ? ` Детали: ${stderr.trim()}` : ''}`));
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    const result = await fsAsync.readFile(outputPath);
+    return result;
+  } finally {
+    try {
+      await fsAsync.rm(tempDir, { recursive: true, force: true });
+    } catch (cleanupError) {
+      console.warn('Не удалось удалить временную директорию преобразования PDF:', cleanupError);
+    }
+  }
 }
 
 function lzwEncodeBuffer(buffer) {
@@ -549,6 +628,19 @@ app.post('/convert', upload.single('image'), async (req, res) => {
 
   try {
     if (format === 'pdf') {
+      const isPdfUpload =
+        (req.file.mimetype && req.file.mimetype.toLowerCase() === 'application/pdf') ||
+        path.extname(req.file.originalname || '').toLowerCase() === '.pdf';
+
+      if (isPdfUpload) {
+        const pdfBuffer = await convertPdfToCmyk(req.file.buffer, { pdfVersion, pdfStandard });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${baseName}.pdf"`);
+        res.send(pdfBuffer);
+        return;
+      }
+
+      console.warn('Получен формат, отличный от PDF, выполняется растровое преобразование.');
       const {
         cmykData,
         alphaData,

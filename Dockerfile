@@ -4,6 +4,11 @@ FROM node:20-bullseye
 # Set working directory for dependency installation
 WORKDIR /app
 
+# Install Ghostscript for PDF конвертации
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ghostscript \
+  && rm -rf /var/lib/apt/lists/*
+
 # Copy package manifest first for better caching
 COPY server/package*.json ./server/
 

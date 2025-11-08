@@ -1226,8 +1226,10 @@
         throw new Error('Некорректный URL сервера.');
       }
 
-      const pngArray = item.data instanceof Uint8Array ? item.data : new Uint8Array(item.data);
-      const pngBlob = new Blob([pngArray], { type: 'image/png' });
+      const binaryArray = item.data instanceof Uint8Array ? item.data : new Uint8Array(item.data);
+      const blobType = format === 'pdf' ? 'application/pdf' : 'image/png';
+      const extension = format === 'pdf' ? 'pdf' : 'png';
+      const uploadBlob = new Blob([binaryArray], { type: blobType });
       const formData = new FormData();
       formData.append('format', format);
       formData.append('name', item.name || 'export');
@@ -1237,7 +1239,7 @@
       formData.append('pdfCompression', pdfCompression || 'none');
       formData.append('tiffCompression', tiffCompression || 'none');
       formData.append('tiffDpi', tiffDpi || 300);
-      formData.append('image', pngBlob, `${item.name || 'export'}.png`);
+      formData.append('image', uploadBlob, `${item.name || 'export'}.${extension}`);
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -1277,6 +1279,12 @@
         const { name, data, widthPx, heightPx } = item;
         const exportName = name || 'export';
         try {
+          if (format === 'pdf' && !useServer) {
+            const pdfArray = data instanceof Uint8Array ? data : new Uint8Array(data);
+            const pdfBlob = new Blob([pdfArray], { type: 'application/pdf' });
+            await saveBlob(pdfBlob, `${exportName}.pdf`);
+            continue;
+          }
           if (!serverUrl) {
             throw new Error('Не указан адрес сервера конвертации.');
           }
