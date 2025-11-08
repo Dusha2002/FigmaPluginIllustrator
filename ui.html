@@ -411,12 +411,22 @@
       </div>
       <div class="row">
         <label>
+          X (мм)
+          <input id="pos-x-mm" type="number" step="1.00" />
+        </label>
+        <label>
+          Y (мм)
+          <input id="pos-y-mm" type="number" step="1.00" />
+        </label>
+      </div>
+      <div class="row">
+        <label>
           Ширина (мм)
-          <input id="width-mm" type="number" step="0.01" />
+          <input id="width-mm" type="number" step="1.00" />
         </label>
         <label>
           Высота (мм)
-          <input id="height-mm" type="number" step="0.01" />
+          <input id="height-mm" type="number" step="1.00" />
         </label>
       </div>
       <label class="checkbox align-right">
@@ -516,6 +526,8 @@
   <script>
     const widthInput = document.getElementById('width-mm');
     const heightInput = document.getElementById('height-mm');
+    const posXInput = document.getElementById('pos-x-mm');
+    const posYInput = document.getElementById('pos-y-mm');
     const applySizeButton = document.getElementById('apply-size');
     const exportButton = document.getElementById('export-cmyk');
     const formatSelect = document.getElementById('export-format');
@@ -1262,6 +1274,10 @@
           const imageData = await decodePNGToImageData(data);
           const cmykData = rgbToCmyk(imageData);
           if (format === 'pdf') {
+            if (useServer && serverUrl) {
+              console.warn('Сервер конвертации недоступен, выполняется локальное построение PDF.');
+              continue;
+            }
             const pdfBlob = buildPDF({ widthPx, heightPx, cmykData, dpi, pdfStandard, pdfVersion, pdfCompression });
             await saveBlob(pdfBlob, `${exportName}.pdf`);
           } else {
@@ -1282,7 +1298,7 @@
       }
       switch (message.type) {
         case 'selection-change': {
-          const { width, height, resizable, selectionCount, distances } = message;
+          const { width, height, x, y, resizable, selectionCount, distances } = message;
           selectionResizable = !!resizable;
           if (typeof width === 'number' && typeof height === 'number') {
             widthInput.value = toFixed(width);
@@ -1294,6 +1310,30 @@
             heightInput.value = '';
             setApplySizeState(false);
             selectionRatio = null;
+          }
+          const singleSelection = selectionCount === 1;
+          hasSingleSelection = singleSelection;
+          if (posXInput) {
+            posXInput.disabled = !singleSelection;
+          }
+          if (posYInput) {
+            posYInput.disabled = !singleSelection;
+          }
+          if (typeof x === 'number' && typeof y === 'number' && singleSelection) {
+            if (posXInput) {
+              posXInput.value = toFixed(x);
+            }
+            if (posYInput) {
+              posYInput.value = toFixed(y);
+            }
+          } else {
+            if (posXInput) {
+              posXInput.value = '';
+            }
+            if (posYInput) {
+              posYInput.value = '';
+            }
+            hasSingleSelection = false;
           }
           setDistanceList(distances);
           break;
@@ -1380,15 +1420,7 @@
     });
 
     applySizeButton.addEventListener('click', () => {
-      const width = parseFloat(widthInput.value);
-      const height = parseFloat(heightInput.value);
-      if (!isNaN(width) && !isNaN(height)) {
-        if (!selectionResizable) {
-          alert('Объект нельзя масштабировать напрямую.');
-          return;
-        }
-        post('apply-size-mm', { width, height });
-      }
+      applySizeValues();
     });
 
     function syncDimensions(changed) {
@@ -1414,6 +1446,88 @@
 
     widthInput.addEventListener('input', () => syncDimensions('width'));
     heightInput.addEventListener('input', () => syncDimensions('height'));
+
+    let hasSingleSelection = false;
+
+    function applySizeValues() {
+      const width = parseFloat(widthInput.value);
+      const height = parseFloat(heightInput.value);
+      if (Number.isNaN(width) || Number.isNaN(height)) {
+        return false;
+      }
+      if (!selectionResizable) {
+        alert('Объект нельзя масштабировать напрямую.');
+        return false;
+      }
+      post('apply-size-mm', { width, height });
+      return true;
+    }
+
+    function applyPositionValues(options = {}) {
+      const { includeX = true, includeY = true } = options;
+      if (!hasSingleSelection) {
+        return false;
+      }
+      const xValue = parseFloat(posXInput.value);
+      const yValue = parseFloat(posYInput.value);
+      const payload = {
+        x: includeX && !Number.isNaN(xValue) ? xValue : null,
+        y: includeY && !Number.isNaN(yValue) ? yValue : null
+      };
+      if (payload.x == null && payload.y == null) {
+        return false;
+      }
+      post('apply-position-mm', payload);
+      return true;
+    }
+
+    function applyAllValues() {
+      let applied = false;
+      applied = applyPositionValues() || applied;
+      applied = applySizeValues() || applied;
+      return applied;
+    }
+
+    function adjustInputValue(input, delta) {
+      if (!input || input.disabled) {
+        return;
+      }
+      const current = parseFloat(input.value);
+      let next = (Number.isNaN(current) ? 0 : current) + delta;
+      if (input === widthInput || input === heightInput) {
+        next = Math.max(0, next);
+      }
+      input.value = toFixed(next);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    function handleNumericKeyDown(event) {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement)) {
+        return;
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        applyAllValues();
+        return;
+      }
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') {
+        return;
+      }
+      event.preventDefault();
+      const baseStep = 1;
+      const step = event.shiftKey ? baseStep * 10 : baseStep;
+      const delta = event.key === 'ArrowUp' ? step : -step;
+      adjustInputValue(input, delta);
+    }
+
+    const numericInputs = [posXInput, posYInput, widthInput, heightInput].filter(Boolean);
+    numericInputs.forEach((input) => {
+      input.addEventListener('keydown', handleNumericKeyDown);
+    });
+
+    posXInput.addEventListener('input', () => applyPositionValues({ includeX: true, includeY: false }));
+    posYInput.addEventListener('input', () => applyPositionValues({ includeX: false, includeY: true }));
 
     lockProportionsCheckbox.addEventListener('change', () => {
       if (lockProportionsCheckbox.checked) {

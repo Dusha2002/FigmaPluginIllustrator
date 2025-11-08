@@ -141,6 +141,47 @@ function getNodeBounds(node) {
   return { x, y, width, height };
 }
 
+function getParentAbsoluteTransform(node) {
+  const parent = node.parent;
+  if (parent && 'absoluteTransform' in parent) {
+    return parent.absoluteTransform;
+  }
+  return [
+    [1, 0, 0],
+    [0, 1, 0]
+  ];
+}
+
+function setNodeAbsolutePosition(node, targetX, targetY) {
+  if (!node || typeof node.relativeTransform === 'undefined') {
+    throw new Error('Объект нельзя перемещать напрямую.');
+  }
+  const parentTransform = getParentAbsoluteTransform(node);
+  const relative = node.relativeTransform;
+  const a = parentTransform[0][0];
+  const b = parentTransform[0][1];
+  const c = parentTransform[0][2];
+  const d = parentTransform[1][0];
+  const e = parentTransform[1][1];
+  const f = parentTransform[1][2];
+  const det = a * e - b * d;
+  const translatedX = targetX - c;
+  const translatedY = targetY - f;
+  let r02;
+  let r12;
+  if (Math.abs(det) < 1e-8) {
+    r02 = translatedX;
+    r12 = translatedY;
+  } else {
+    r02 = (translatedX * e - b * translatedY) / det;
+    r12 = (a * translatedY - d * translatedX) / det;
+  }
+  node.relativeTransform = [
+    [relative[0][0], relative[0][1], r02],
+    [relative[1][0], relative[1][1], r12]
+  ];
+}
+
 function axisGap(aStart, aSize, bStart, bSize) {
   const aEnd = aStart + aSize;
   const bEnd = bStart + bSize;
@@ -149,6 +190,18 @@ function axisGap(aStart, aSize, bStart, bSize) {
   }
   if (bEnd <= aStart) {
     return aStart - bEnd;
+  }
+  return 0;
+}
+
+function signedAxisDistance(aStart, aSize, bStart, bSize) {
+  const aEnd = aStart + aSize;
+  const bEnd = bStart + bSize;
+  if (aEnd <= bStart) {
+    return bStart - aEnd;
+  }
+  if (bEnd <= aStart) {
+    return -(aStart - bEnd);
   }
   return 0;
 }
@@ -167,13 +220,13 @@ function computeSelectionDistances(selection) {
     for (let j = i + 1; j < selection.length; j += 1) {
       const target = selection[j];
       const targetBounds = getNodeBounds(target);
-      const centerX = targetBounds.x + targetBounds.width / 2;
-      const centerY = targetBounds.y + targetBounds.height / 2;
-      const deltaX = (centerX - sourceCenterX) * MM_PER_PX;
-      const deltaY = (centerY - sourceCenterY) * MM_PER_PX;
-      const horizontalGap = axisGap(sourceBounds.x, sourceBounds.width, targetBounds.x, targetBounds.width) * MM_PER_PX;
-      const verticalGap = axisGap(sourceBounds.y, sourceBounds.height, targetBounds.y, targetBounds.height) * MM_PER_PX;
-      const distance = Math.hypot(deltaX, deltaY);
+      const horizontalGapPx = axisGap(sourceBounds.x, sourceBounds.width, targetBounds.x, targetBounds.width);
+      const verticalGapPx = axisGap(sourceBounds.y, sourceBounds.height, targetBounds.y, targetBounds.height);
+      const deltaX = signedAxisDistance(sourceBounds.x, sourceBounds.width, targetBounds.x, targetBounds.width) * MM_PER_PX;
+      const deltaY = signedAxisDistance(sourceBounds.y, sourceBounds.height, targetBounds.y, targetBounds.height) * MM_PER_PX;
+      const horizontalGap = horizontalGapPx * MM_PER_PX;
+      const verticalGap = verticalGapPx * MM_PER_PX;
+      const distance = Math.hypot(horizontalGapPx, verticalGapPx) * MM_PER_PX;
       result.push({
         fromName: sourceName,
         toName: getSafeNodeName(target, `Объект ${j + 1}`),
@@ -194,6 +247,8 @@ function sendSelectionInfo() {
     type: 'selection-change',
     width: null,
     height: null,
+    x: null,
+    y: null,
     resizable: false,
     selectionCount: selection.length,
     distances: computeSelectionDistances(selection),
@@ -202,8 +257,11 @@ function sendSelectionInfo() {
   if (selection.length === 1) {
     const node = selection[0];
     if ('width' in node && 'height' in node) {
-      response.width = node.width * MM_PER_PX;
-      response.height = node.height * MM_PER_PX;
+      const bounds = getNodeBounds(node);
+      response.width = bounds.width * MM_PER_PX;
+      response.height = bounds.height * MM_PER_PX;
+      response.x = bounds.x * MM_PER_PX;
+      response.y = bounds.y * MM_PER_PX;
       response.resizable = nodeSupportsResize(node);
       response.ratio = node.height !== 0 ? node.width / node.height : null;
     }
@@ -222,6 +280,31 @@ function sendThemeInfo() {
 figma.on('selectionchange', () => {
   sendSelectionInfo();
 });
+
+function handleDocumentChange(event) {
+  const selection = figma.currentPage.selection;
+  if (selection.length === 0) {
+    return;
+  }
+  const selectionIds = new Set(selection.map((node) => node.id));
+  for (const change of event.documentChanges) {
+    if (change.type === 'PROPERTY_CHANGE' && selectionIds.has(change.id)) {
+      sendSelectionInfo();
+      break;
+    }
+  }
+}
+
+(async () => {
+  try {
+    if ('loadAllPagesAsync' in figma && typeof figma.loadAllPagesAsync === 'function') {
+      await figma.loadAllPagesAsync();
+    }
+    figma.on('documentchange', handleDocumentChange);
+  } catch (error) {
+    // Если API не поддерживает загрузку всех страниц или подписку, пропускаем доп. обновление.
+  }
+})();
 
 if ('on' in figma && typeof figma.on === 'function') {
   try {
@@ -289,6 +372,28 @@ async function handleSizeUpdate(widthMm, heightMm) {
   } else if ('resize' in node) {
     node.resize(targetWidth, targetHeight);
   }
+  sendSelectionInfo();
+}
+
+async function handlePositionUpdate(positionMm) {
+  const selection = figma.currentPage.selection;
+  if (selection.length !== 1) {
+    throw new Error('Выберите один объект для перемещения.');
+  }
+  const node = selection[0];
+  if (!node || typeof node.relativeTransform === 'undefined') {
+    throw new Error('Текущий объект нельзя перемещать напрямую.');
+  }
+  const bounds = getNodeBounds(node);
+  let targetX = bounds.x;
+  let targetY = bounds.y;
+  if (positionMm && typeof positionMm.x === 'number' && !Number.isNaN(positionMm.x)) {
+    targetX = positionMm.x * PX_PER_MM;
+  }
+  if (positionMm && typeof positionMm.y === 'number' && !Number.isNaN(positionMm.y)) {
+    targetY = positionMm.y * PX_PER_MM;
+  }
+  setNodeAbsolutePosition(node, targetX, targetY);
   sendSelectionInfo();
 }
 
@@ -379,6 +484,16 @@ figma.ui.onmessage = async (message) => {
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : 'Не удалось изменить размеры.';
         figma.ui.postMessage({ type: 'size-update', success: false, error: errMsg });
+      }
+      break;
+    }
+    case 'apply-position-mm': {
+      try {
+        await handlePositionUpdate({ x: message.x, y: message.y });
+        figma.ui.postMessage({ type: 'position-update', success: true });
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : 'Не удалось переместить объект.';
+        figma.ui.postMessage({ type: 'position-update', success: false, error: errMsg });
       }
       break;
     }
