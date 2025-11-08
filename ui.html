@@ -7,16 +7,20 @@
   <style>
     :root {
       color-scheme: light;
-      --bg: #f5f5f7;
-      --fg: #1f2329;
+      --bg: #f4f5f7;
+      --fg: #1c1d21;
       --surface: #ffffff;
-      --surface-border: #d1d5db;
+      --surface-border: #d0d1d6;
       --accent: #18a0fb;
+      --accent-hover: #0d8ae5;
       --accent-foreground: #ffffff;
-      --muted: #6b7280;
-      --divider: rgba(17, 24, 39, 0.08);
-      --input-bg: #ffffff;
-      --shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+      --muted: #6b6f76;
+      --divider: rgba(27, 31, 37, 0.08);
+      --input-bg: #fbfbfc;
+      --input-border: #c5c7cc;
+      --input-border-hover: #aeb1b8;
+      --label: #6b6f76;
+      --shadow: none;
     }
 
     .panel-actions button {
@@ -108,16 +112,20 @@
 
     body[data-theme="dark"] {
       color-scheme: dark;
-      --bg: #1f2225;
+      --bg: #2c2c2f;
       --fg: #f5f5f5;
-      --surface: #26292c;
-      --surface-border: #3f4347;
+      --surface: #232325;
+      --surface-border: #3a3a3e;
       --accent: #0a84ff;
+      --accent-hover: #1070d8;
       --accent-foreground: #ffffff;
-      --muted: #9ca3af;
+      --muted: #abadb3;
       --divider: rgba(255, 255, 255, 0.08);
-      --input-bg: #1f1f22;
-      --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+      --input-bg: #1d1d1f;
+      --input-border: #3d3d41;
+      --input-border-hover: #54545a;
+      --label: #abadb3;
+      --shadow: none;
     }
 
     body {
@@ -185,12 +193,11 @@
     section.panel {
       background: var(--surface);
       border: 1px solid var(--surface-border);
-      border-radius: 10px;
-      padding: 14px;
+      border-radius: 8px;
+      padding: 12px;
       display: flex;
       flex-direction: column;
       gap: 12px;
-      box-shadow: var(--shadow);
     }
 
     .panel-header {
@@ -202,8 +209,11 @@
 
     h2 {
       margin: 0;
-      font-size: 1.05em;
+      font-size: 0.75em;
       font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--label);
     }
 
     .panel-actions {
@@ -233,8 +243,12 @@
     label {
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      font-size: 0.95em;
+      gap: 6px;
+      font-size: 0.8em;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--label);
     }
 
     label.checkbox {
@@ -242,6 +256,10 @@
       gap: 8px;
       align-items: center;
       font-size: 0.9em;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
+      color: var(--fg);
     }
 
     label.checkbox.align-right {
@@ -265,38 +283,51 @@
       width: 100%;
       padding: 6px 8px;
       border-radius: 6px;
-      border: 1px solid var(--surface-border);
+      border: 1px solid var(--input-border);
       background: var(--input-bg);
       color: var(--fg);
-      transition: border-color 0.15s ease;
+      transition: border-color 0.15s ease, background 0.15s ease;
+      font-size: 0.95em;
     }
 
     input:focus,
     select:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+      box-shadow: 0 0 0 1px var(--accent);
+      background: color-mix(in srgb, var(--accent) 6%, var(--input-bg) 94%);
+    }
+
+    input:hover:not(:disabled),
+    select:hover:not(:disabled) {
+      border-color: var(--input-border-hover);
     }
 
     button {
-      padding: 8px 12px;
+      padding: 7px 12px;
       border: none;
       border-radius: 6px;
       background: var(--accent);
       color: var(--accent-foreground);
       cursor: pointer;
       font-weight: 600;
-      transition: transform 0.1s ease, background 0.15s ease;
+      transition: background 0.15s ease;
     }
 
     button:hover:not(:disabled) {
-      transform: translateY(-1px);
+      background: var(--accent-hover);
     }
 
     button:disabled {
       background: color-mix(in srgb, var(--accent) 30%, transparent);
       cursor: not-allowed;
       transform: none;
+    }
+
+    input:disabled {
+      background: color-mix(in srgb, var(--surface) 90%, var(--bg) 10%);
+      color: color-mix(in srgb, var(--fg) 60%, var(--muted) 40%);
+      border-color: color-mix(in srgb, var(--input-border) 70%, transparent);
     }
 
     .divider {
@@ -320,12 +351,12 @@
 
     .distance-item {
       border: 1px solid var(--surface-border);
-      border-radius: 8px;
+      border-radius: 6px;
       padding: 8px;
       display: flex;
       flex-direction: column;
       gap: 4px;
-      background: color-mix(in srgb, var(--surface) 80%, var(--bg) 20%);
+      background: color-mix(in srgb, var(--surface) 70%, var(--bg) 30%);
     }
 
     .distance-item strong {
@@ -499,19 +530,12 @@
           </label>
           <label>
             DPI
-            <input id="tiff-dpi" type="number" min="1" value="300" />
-          </label>
-        </div>
-
-        <div id="server-options" class="stack">
-          <label class="checkbox">
-            <input id="use-server" type="checkbox" checked />
-            Использовать сервер конвертации
+            <input id="tiff-dpi" type="number" min="1" value="96" />
           </label>
         </div>
       </div>
       <div class="panel-footer">
-        <button id="export-cmyk">Экспортировать выделение</button>
+        <button id="export-cmyk">Экспортировать</button>
       </div>
     </section>
   </main>
@@ -538,7 +562,6 @@
     const pdfStandardSelect = document.getElementById('pdf-standard');
     const tiffCompressionSelect = document.getElementById('tiff-compression');
     const tiffDpiInput = document.getElementById('tiff-dpi');
-    const useServerCheckbox = document.getElementById('use-server');
     const lockProportionsCheckbox = document.getElementById('lock-proportions');
     const uiScaleSelect = document.getElementById('ui-scale');
     const uiSizeSelect = document.getElementById('ui-size');
@@ -552,7 +575,6 @@
     const uiHeightInput = document.getElementById('ui-height');
     const uiHeightRange = document.getElementById('ui-height-range');
     const exportOverlay = document.getElementById('export-loading');
-    const hasServerControls = !!useServerCheckbox;
     let selectionResizable = false;
     let selectionRatio = null;
     let isSyncingDimensions = false;
@@ -1255,35 +1277,21 @@
         const { name, data, widthPx, heightPx } = item;
         const exportName = name || 'export';
         try {
-          if (useServer && serverUrl) {
-            const resultBlob = await exportViaServer(item, {
-              format,
-              dpi,
-              pdfVersion,
-              pdfStandard,
-              pdfCompression,
-              tiffCompression,
-              tiffDpi,
-              serverUrl
-            });
-            const extension = format === 'pdf' ? 'pdf' : 'tiff';
-            await saveBlob(resultBlob, `${exportName}.${extension}`);
-            continue;
+          if (!serverUrl) {
+            throw new Error('Не указан адрес сервера конвертации.');
           }
-
-          const imageData = await decodePNGToImageData(data);
-          const cmykData = rgbToCmyk(imageData);
-          if (format === 'pdf') {
-            if (useServer && serverUrl) {
-              console.warn('Сервер конвертации недоступен, выполняется локальное построение PDF.');
-              continue;
-            }
-            const pdfBlob = buildPDF({ widthPx, heightPx, cmykData, dpi, pdfStandard, pdfVersion, pdfCompression });
-            await saveBlob(pdfBlob, `${exportName}.pdf`);
-          } else {
-            const tiffBlob = buildTIFF({ widthPx, heightPx, cmykData, dpi, tiffCompression, tiffDpi });
-            await saveBlob(tiffBlob, `${exportName}.tiff`);
-          }
+          const resultBlob = await exportViaServer(item, {
+            format,
+            dpi,
+            pdfVersion,
+            pdfStandard,
+            pdfCompression,
+            tiffCompression,
+            tiffDpi,
+            serverUrl
+          });
+          const extension = format === 'pdf' ? 'pdf' : 'tiff';
+          await saveBlob(resultBlob, `${exportName}.${extension}`);
         } catch (error) {
           console.error('Ошибка обработки элемента', exportName, error);
           alert(`Не удалось экспортировать «${exportName}»: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
@@ -1627,27 +1635,23 @@
       showExportOverlay();
       const exportFormat = formatSelect.value;
       const payload = { format: exportFormat };
-      const useServer = hasServerControls ? useServerCheckbox.checked : false;
-      payload.serverUrl = useServer ? DEFAULT_SERVER_URL : '';
-      payload.useServer = useServer;
+      const baseDpi = 96;
+      payload.serverUrl = DEFAULT_SERVER_URL;
+      payload.useServer = true;
       if (exportFormat === 'pdf') {
         payload.pdfVersion = pdfVersionSelect.value;
         payload.pdfCompression = pdfCompressionSelect.value;
         payload.pdfStandard = pdfStandardSelect.value;
+        payload.dpi = baseDpi;
       } else {
+        const dpiValue = parseInt(tiffDpiInput.value, 10);
+        const tiffDpi = Math.max(Number.isFinite(dpiValue) ? dpiValue : baseDpi, 1);
         payload.tiffCompression = tiffCompressionSelect.value;
-        payload.tiffDpi = Math.max(parseInt(tiffDpiInput.value, 10) || 300, 1);
+        payload.tiffDpi = tiffDpi;
+        payload.dpi = tiffDpi;
       }
-      const dpiValue = parseInt(tiffDpiInput.value, 10);
-      payload.dpi = Math.max(Number.isFinite(dpiValue) ? dpiValue : 96, 1);
       post('export-cmyk', payload);
     });
-
-    if (hasServerControls) {
-      useServerCheckbox.addEventListener('change', () => {
-        // Нет дополнительных элементов для включения/отключения.
-      });
-    }
 
     formatSelect.addEventListener('change', () => {
       const format = formatSelect.value;

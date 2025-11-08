@@ -11,6 +11,7 @@ app.use(cors());
 
 const PROFILE_PATH = path.join(__dirname, '..', 'CoatedFOGRA39.icc');
 let coatedFograProfileBytes = null;
+const DEFAULT_DPI = 96;
 
 function loadIccProfile() {
   if (!coatedFograProfileBytes) {
@@ -267,7 +268,7 @@ function buildPDF({
   }
   const header = `%PDF-${effectiveVersion}\n%âãÏÓ\n`;
 
-  const effectiveDpi = Math.max(parseFloat(dpi) || 96, 1);
+  const effectiveDpi = Math.max(parseFloat(dpi) || DEFAULT_DPI, 1);
   const widthPt = (widthPx / effectiveDpi) * 72;
   const heightPt = (heightPx / effectiveDpi) * 72;
 
@@ -513,7 +514,7 @@ async function buildTiff(buffer, { compression, dpi }) {
     lzw: 'lzw'
   };
   const targetCompression = compressionMap[compression] || 'none';
-  const targetDpi = Math.max(parseFloat(dpi) || 300, 1);
+  const targetDpi = Math.max(parseFloat(dpi) || DEFAULT_DPI, 1);
   return sharp(buffer)
     .withMetadata({ icc: profilePath })
     .toColorspace('cmyk')
@@ -538,12 +539,12 @@ app.post('/convert', upload.single('image'), async (req, res) => {
 
   const format = (req.body.format || 'pdf').toLowerCase();
   const baseName = (req.body.name || 'export').replace(/[^a-zA-Z0-9_\-]+/g, '_') || 'export';
-  const dpi = parseFloat(req.body.dpi) || 96;
+  const dpi = parseFloat(req.body.dpi) || DEFAULT_DPI;
   const pdfVersion = req.body.pdfVersion || '1.4';
   const pdfStandard = req.body.pdfStandard || 'none';
   const pdfCompression = req.body.pdfCompression || 'none';
   const tiffCompression = req.body.tiffCompression || 'none';
-  const tiffDpi = parseFloat(req.body.tiffDpi) || dpi || 300;
+  const tiffDpi = parseFloat(req.body.tiffDpi) || dpi || DEFAULT_DPI;
 
   try {
     if (format === 'pdf') {

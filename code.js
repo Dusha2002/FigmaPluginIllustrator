@@ -1,5 +1,7 @@
-const MM_PER_PX = 25.4 / 96;
-const PX_PER_MM = 96 / 25.4;
+const DEFAULT_DPI = 96;
+const MM_PER_PX = 25.4 / DEFAULT_DPI;
+const PX_PER_MM = DEFAULT_DPI / 25.4;
+const DEFAULT_SERVER_URL = 'https://figmapluginillustrator.up.railway.app';
 
 const UI_SIZE_PRESETS = {
   small: { width: 320, height: 440 },
@@ -399,11 +401,10 @@ async function handlePositionUpdate(positionMm) {
 
 async function exportSelection(settings) {
   const exportFormat = settings && typeof settings.format === 'string' ? settings.format : 'pdf';
+  const baseDpi = DEFAULT_DPI;
   const requestedDpi = settings && typeof settings.dpi === 'number'
     ? Math.max(settings.dpi, 1)
-    : (exportFormat === 'tiff' && settings && typeof settings.tiffDpi === 'number'
-      ? Math.max(settings.tiffDpi, 1)
-      : null);
+    : baseDpi;
   const pdfStandard = exportFormat === 'pdf' && settings && typeof settings.pdfStandard === 'string'
     ? settings.pdfStandard
     : 'none';
@@ -416,12 +417,12 @@ async function exportSelection(settings) {
   const tiffCompression = exportFormat === 'tiff' && settings && typeof settings.tiffCompression === 'string'
     ? settings.tiffCompression
     : 'none';
-  const tiffDpi = exportFormat === 'tiff' && settings && typeof settings.tiffDpi === 'number'
-    ? Math.max(settings.tiffDpi, 1)
-    : null;
-  const useServer = !!(settings && settings.useServer);
-  const serverUrl = useServer && settings && typeof settings.serverUrl === 'string' ? settings.serverUrl : '';
-  const scale = requestedDpi ? Math.max(requestedDpi / 96, 0.05) : 1;
+  const tiffDpi = requestedDpi;
+  const useServer = true;
+  const serverUrl = settings && typeof settings.serverUrl === 'string' && settings.serverUrl.trim().length > 0
+    ? settings.serverUrl
+    : (typeof DEFAULT_SERVER_URL === 'undefined' ? '' : DEFAULT_SERVER_URL);
+  const scale = Math.max(requestedDpi / baseDpi, 0.01);
   const selection = figma.currentPage.selection;
   if (selection.length === 0) {
     throw new Error('Нет выделенных объектов для экспорта.');
@@ -436,7 +437,7 @@ async function exportSelection(settings) {
       format: 'PNG',
       useAbsoluteBounds: true
     };
-    if (scale !== 1) {
+    if (Math.abs(scale - 1) > 0.0001) {
       exportSettings.constraint = { type: 'SCALE', value: scale };
     }
     const bytes = await node.exportAsync(exportSettings);
@@ -444,9 +445,8 @@ async function exportSelection(settings) {
     const bounds = node.absoluteRenderBounds;
     const baseWidth = bounds ? bounds.width : (node.width || 0);
     const baseHeight = bounds ? bounds.height : (node.height || 0);
-    const widthScale = scale || 1;
-    const widthPx = Math.max(1, Math.round(baseWidth * widthScale));
-    const heightPx = Math.max(1, Math.round(baseHeight * widthScale));
+    const widthPx = Math.max(1, Math.round(baseWidth * scale));
+    const heightPx = Math.max(1, Math.round(baseHeight * scale));
     exported.push({
       name: baseName,
       data: bytes,
@@ -457,7 +457,7 @@ async function exportSelection(settings) {
   if (exported.length === 0) {
     throw new Error('Не удалось экспортировать выделенные объекты.');
   }
-  const effectiveDpi = requestedDpi ? requestedDpi : 96;
+  const effectiveDpi = requestedDpi;
   return {
     items: exported,
     format: exportFormat,
@@ -466,7 +466,7 @@ async function exportSelection(settings) {
     pdfVersion,
     pdfCompression,
     tiffCompression,
-    tiffDpi: tiffDpi || effectiveDpi,
+    tiffDpi: tiffDpi,
     useServer,
     serverUrl
   };
