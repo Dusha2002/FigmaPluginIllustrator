@@ -1,0 +1,17 @@
+com\figma\export\model\ExportResponse.class
+com\figma\export\svg\SvgRenderer$BufferedImageTranscoderResult.class
+com\figma\export\model\ExportRequest.class
+com\figma\export\model\UploadType.class
+com\figma\export\controller\ExportController.class
+com\figma\export\exception\ErrorResponse.class
+com\figma\export\service\ImageProcessingService.class
+com\figma\export\exception\ConversionException.class
+com\figma\export\pdf\PdfStandard.class
+com\figma\export\exception\GlobalExceptionHandler.class
+com\figma\export\svg\SvgRenderer.class
+com\figma\export\svg\SvgRenderer$SvgRenderResult.class
+com\figma\export\service\ExportService$1.class
+com\figma\export\ExportServerApplication.class
+com\figma\export\service\ExportService.class
+com\figma\export\color\ColorProfileManager.class
+com\figma\export\svg\SvgRenderer$BufferedImageTranscoder.class

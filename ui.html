@@ -512,7 +512,7 @@
           </label>
           <label class="checkbox">
             <input type="checkbox" id="pdf-keep-vector" />
-            <span>С вектором (RGB, без CMYK)</span>
+            <span>С вектором (RGB, без CMYK и стандартов)</span>
           </label>
         </div>
 
@@ -1262,8 +1262,12 @@
       }
 
       const binaryArray = item.data instanceof Uint8Array ? item.data : new Uint8Array(item.data);
-      const blobType = format === 'pdf' ? 'image/svg+xml' : 'image/png';
-      const extension = format === 'pdf' ? 'svg' : 'png';
+      const { blobType, extension } = (() => {
+        if (format === 'pdf') {
+          return { blobType: 'image/svg+xml', extension: 'svg' };
+        }
+        return { blobType: 'image/png', extension: 'png' };
+      })();
       const uploadBlob = new Blob([binaryArray], { type: blobType });
       const formData = new FormData();
       formData.append('format', format);

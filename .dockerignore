@@ -1,11 +1,6 @@
 node_modules
 npm-debug.log
-docker-compose.yml
-Dockerfile
 README.md
 .git
 .gitignore
 *.local
-
-server/node_modules
-server/npm-debug.log
