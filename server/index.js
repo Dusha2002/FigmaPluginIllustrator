@@ -72,36 +72,36 @@ async function convertSvgToPdf(svgBuffer, { widthPx, heightPx }) {
   try {
     await fsAsync.writeFile(inputPath, svgBuffer);
 
-    const widthValue = Number.parseInt(widthPx, 10);
-    const heightValue = Number.parseInt(heightPx, 10);
-    const optionArgs = [];
+    const widthValue = Number.parseFloat(widthPx);
+    const heightValue = Number.parseFloat(heightPx);
+    const args = [inputPath, '--export-type=pdf', `--export-filename=${outputPath}`, '--export-area-drawing'];
+
     if (Number.isFinite(widthValue) && widthValue > 0) {
-      optionArgs.push('-w', Math.round(widthValue).toString());
+      args.push(`--export-width=${Math.round(widthValue)}`);
     }
     if (Number.isFinite(heightValue) && heightValue > 0) {
-      optionArgs.push('-h', Math.round(heightValue).toString());
+      args.push(`--export-height=${Math.round(heightValue)}`);
     }
-    const args = [...optionArgs, '-f', 'pdf', '-o', outputPath, inputPath];
 
     await new Promise((resolve, reject) => {
-      const rsvgProcess = spawn('rsvg-convert', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      const inkscapeProcess = spawn('inkscape', args, { stdio: ['ignore', 'ignore', 'pipe'] });
       let stderr = '';
 
-      rsvgProcess.stderr.on('data', (data) => {
+      inkscapeProcess.stderr.on('data', (data) => {
         stderr += data.toString();
       });
 
-      rsvgProcess.on('error', (error) => {
+      inkscapeProcess.on('error', (error) => {
         if (error.code === 'ENOENT') {
-          reject(new Error('rsvg-convert не установлен или недоступен. Установите пакет librsvg2-bin.'));
+          reject(new Error('Inkscape не установлен или недоступен. Установите пакет inkscape.'));
         } else {
           reject(error);
         }
       });
 
-      rsvgProcess.on('close', (code) => {
+      inkscapeProcess.on('close', (code) => {
         if (code !== 0) {
-          reject(new Error(`rsvg-convert завершился с кодом ${code}.${stderr ? ` Детали: ${stderr.trim()}` : ''}`));
+          reject(new Error(`Inkscape завершился с кодом ${code}.${stderr ? ` Детали: ${stderr.trim()}` : ''}`));
         } else {
           resolve();
         }
@@ -713,6 +713,7 @@ app.post('/convert', upload.single('image'), async (req, res) => {
   const dpi = parseFloat(req.body.dpi) || DEFAULT_DPI;
   const pdfVersion = req.body.pdfVersion || '1.4';
   const pdfStandard = req.body.pdfStandard || 'none';
+  const keepVector = req.body.keepVector === 'true';
   const tiffCompression = req.body.tiffCompression || 'none';
   const tiffAntialias = req.body.tiffAntialias || 'none';
   const tiffDpi = parseFloat(req.body.tiffDpi) || dpi || DEFAULT_DPI;
@@ -729,7 +730,16 @@ app.post('/convert', upload.single('image'), async (req, res) => {
         const widthPx = Number.parseInt(req.body.widthPx, 10);
         const heightPx = Number.parseInt(req.body.heightPx, 10);
         const intermediatePdf = await convertSvgToPdf(req.file.buffer, { widthPx, heightPx });
-        const pdfBuffer = await convertPdfToCmyk(intermediatePdf, { pdfVersion, pdfStandard });
+
+        if (keepVector) {
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `attachment; filename="${baseName}.pdf"`);
+          res.send(intermediatePdf);
+          return;
+        }
+
+        const effectiveStandard = keepVector ? 'none' : pdfStandard;
+        const pdfBuffer = await convertPdfToCmyk(intermediatePdf, { pdfVersion, pdfStandard: effectiveStandard });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${baseName}.pdf"`);
         res.send(pdfBuffer);
@@ -737,7 +747,15 @@ app.post('/convert', upload.single('image'), async (req, res) => {
       }
 
       if (isPdfUpload) {
-        const pdfBuffer = await convertPdfToCmyk(req.file.buffer, { pdfVersion, pdfStandard });
+        if (keepVector) {
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `attachment; filename="${baseName}.pdf"`);
+          res.send(req.file.buffer);
+          return;
+        }
+
+        const effectiveStandard = keepVector ? 'none' : pdfStandard;
+        const pdfBuffer = await convertPdfToCmyk(req.file.buffer, { pdfVersion, pdfStandard: effectiveStandard });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${baseName}.pdf"`);
         res.send(pdfBuffer);

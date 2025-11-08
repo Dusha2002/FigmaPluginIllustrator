@@ -510,6 +510,10 @@
               <option value="PDF/X-3:2003">PDF/X-3:2003</option>
             </select>
           </label>
+          <label class="checkbox">
+            <input type="checkbox" id="pdf-keep-vector" />
+            <span>С вектором (RGB, без CMYK)</span>
+          </label>
         </div>
 
         <div id="tiff-options" class="stack hidden">
@@ -559,6 +563,7 @@
     const tiffOptionsBlock = document.getElementById('tiff-options');
     const pdfVersionSelect = document.getElementById('pdf-version');
     const pdfStandardSelect = document.getElementById('pdf-standard');
+    const pdfKeepVectorCheckbox = document.getElementById('pdf-keep-vector');
     const tiffCompressionSelect = document.getElementById('tiff-compression');
     const tiffAntialiasSelect = document.getElementById('tiff-antialias');
     const tiffPpiInput = document.getElementById('tiff-ppi');
@@ -581,6 +586,35 @@
     let manualThemeOverride = null;
     let isApplyingPreferences = false;
     let settingsExpanded = false;
+
+    function updatePdfVectorState() {
+      if (!pdfKeepVectorCheckbox || !pdfStandardSelect) {
+        return;
+      }
+      if (pdfKeepVectorCheckbox.checked) {
+        pdfStandardSelect.value = 'none';
+        pdfStandardSelect.disabled = true;
+      } else {
+        pdfStandardSelect.disabled = false;
+      }
+    }
+
+    if (pdfKeepVectorCheckbox) {
+      pdfKeepVectorCheckbox.addEventListener('change', () => {
+        updatePdfVectorState();
+      });
+    }
+
+    if (pdfStandardSelect) {
+      pdfStandardSelect.addEventListener('change', () => {
+        if (pdfStandardSelect.value !== 'none' && pdfKeepVectorCheckbox && pdfKeepVectorCheckbox.checked) {
+          pdfKeepVectorCheckbox.checked = false;
+        }
+        updatePdfVectorState();
+      });
+    }
+
+    updatePdfVectorState();
 
     function post(type, payload) {
       const message = { type };
@@ -1214,6 +1248,7 @@
         dpi,
         pdfVersion,
         pdfStandard,
+        keepVector,
         tiffCompression,
         tiffAntialias,
         tiffDpi,
@@ -1236,6 +1271,7 @@
       formData.append('dpi', dpi);
       formData.append('pdfVersion', pdfVersion || '1.4');
       formData.append('pdfStandard', pdfStandard || 'none');
+      formData.append('keepVector', keepVector ? 'true' : 'false');
       formData.append('tiffCompression', tiffCompression || 'none');
       formData.append('tiffAntialias', tiffAntialias || 'none');
       formData.append('tiffDpi', tiffDpi || 300);
@@ -1274,7 +1310,8 @@
         tiffAntialias,
         tiffDpi,
         useServer,
-        serverUrl
+        serverUrl,
+        keepVector
       } = message;
 
       for (const item of items) {
@@ -1289,6 +1326,7 @@
             dpi,
             pdfVersion,
             pdfStandard,
+            keepVector,
             tiffCompression,
             tiffAntialias,
             tiffDpi,
@@ -1645,6 +1683,7 @@
       if (exportFormat === 'pdf') {
         payload.pdfVersion = pdfVersionSelect.value;
         payload.pdfStandard = pdfStandardSelect.value;
+        payload.keepVector = !!(pdfKeepVectorCheckbox && pdfKeepVectorCheckbox.checked);
         payload.dpi = baseDpi;
       } else {
         const ppiValue = parseInt(tiffPpiInput.value, 10);

@@ -4,9 +4,9 @@ FROM node:20-bullseye
 # Set working directory for dependency installation
 WORKDIR /app
 
-# Install Ghostscript и librsvg для конвертации PDF и SVG
+# Install Ghostscript, Inkscape и librsvg для конвертации PDF и SVG
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ghostscript librsvg2-bin \
+  && apt-get install -y --no-install-recommends ghostscript inkscape librsvg2-bin \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy package manifest first for better caching

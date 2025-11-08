@@ -411,6 +411,9 @@ async function exportSelection(settings) {
   const pdfVersion = exportFormat === 'pdf' && settings && typeof settings.pdfVersion === 'string'
     ? settings.pdfVersion
     : '1.4';
+  const keepVector = exportFormat === 'pdf' && settings && typeof settings.keepVector === 'boolean'
+    ? settings.keepVector
+    : false;
   const tiffCompression = exportFormat === 'tiff' && settings && typeof settings.tiffCompression === 'string'
     ? settings.tiffCompression
     : 'none';
@@ -469,6 +472,7 @@ async function exportSelection(settings) {
     dpi: effectiveDpi,
     pdfStandard,
     pdfVersion,
+    keepVector,
     tiffCompression,
     tiffAntialias,
     tiffDpi: tiffDpi,
@@ -513,6 +517,7 @@ figma.ui.onmessage = async (message) => {
           dpi: result.dpi,
           pdfStandard: result.pdfStandard,
           pdfVersion: result.pdfVersion,
+          keepVector: result.keepVector,
           tiffCompression: result.tiffCompression,
           tiffAntialias: result.tiffAntialias,
           tiffDpi: result.tiffDpi,
