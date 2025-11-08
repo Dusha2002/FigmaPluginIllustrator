@@ -72,15 +72,16 @@ async function convertSvgToPdf(svgBuffer, { widthPx, heightPx }) {
   try {
     await fsAsync.writeFile(inputPath, svgBuffer);
 
-    const args = ['-f', 'pdf', '-o', outputPath, inputPath];
     const widthValue = Number.parseInt(widthPx, 10);
     const heightValue = Number.parseInt(heightPx, 10);
+    const optionArgs = [];
     if (Number.isFinite(widthValue) && widthValue > 0) {
-      args.unshift(widthValue.toString(), '-w');
+      optionArgs.push('-w', Math.round(widthValue).toString());
     }
     if (Number.isFinite(heightValue) && heightValue > 0) {
-      args.unshift(heightValue.toString(), '-h');
+      optionArgs.push('-h', Math.round(heightValue).toString());
     }
+    const args = [...optionArgs, '-f', 'pdf', '-o', outputPath, inputPath];
 
     await new Promise((resolve, reject) => {
       const rsvgProcess = spawn('rsvg-convert', args, { stdio: ['ignore', 'ignore', 'pipe'] });
