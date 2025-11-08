@@ -243,6 +243,8 @@ function lzwEncode(data) {
 
 function buildPDF({
   cmykData,
+  alphaData,
+  hasTransparency,
   widthPx,
   heightPx,
   dpi,
@@ -254,7 +256,15 @@ function buildPDF({
   const requestedVersion = pdfVersion || '1.4';
   const selectedStandard = pdfStandard && pdfStandard !== 'none' ? pdfStandard : 'none';
   const standardConfig = PDF_STANDARD_CONFIG[selectedStandard] || null;
-  const effectiveVersion = standardConfig ? ensurePdfVersion(requestedVersion, standardConfig.version) : requestedVersion;
+  let effectiveVersion = standardConfig ? ensurePdfVersion(requestedVersion, standardConfig.version) : requestedVersion;
+  const transparencyRequested = hasTransparency && alphaData && alphaData.length === widthPx * heightPx;
+  if (transparencyRequested && parseFloat(effectiveVersion) < 1.4) {
+    effectiveVersion = '1.4';
+  }
+  const transparencyAllowed = transparencyRequested && (selectedStandard === 'none' || selectedStandard === 'PDF/X-4:2008');
+  if (transparencyRequested && !transparencyAllowed) {
+    console.warn('Transparency requested but not supported for selected PDF standard; output will be flattened.');
+  }
   const header = `%PDF-${effectiveVersion}\n%âãÏÓ\n`;
 
   const effectiveDpi = Math.max(parseFloat(dpi) || 96, 1);
@@ -308,6 +318,12 @@ function buildPDF({
     nextObjectId += 1;
   }
 
+  let smaskObjectId = null;
+  if (transparencyAllowed) {
+    smaskObjectId = nextObjectId;
+    nextObjectId += 1;
+  }
+
   const catalogFields = ['/Type /Catalog', '/Pages 2 0 R'];
   if (hasStandard) {
     catalogFields.push('/Trapped false');
@@ -344,6 +360,10 @@ function buildPDF({
     imageDictParts.push('/ColorSpace /DeviceCMYK');
   }
 
+  if (smaskObjectId !== null) {
+    imageDictParts.push(`/SMask ${smaskObjectId} 0 R`);
+  }
+
   if (compression === 'runLength') {
     imageStream = runLengthEncode(imageStream);
     imageDictParts.push('/Filter /RunLengthDecode');
@@ -363,6 +383,29 @@ function buildPDF({
 
   imageDictParts.push(`/Length ${imageStream.length}`);
   addStreamObject(IMAGE_ID, `<< ${imageDictParts.join(' ')} >>`, imageStream);
+
+  if (smaskObjectId !== null) {
+    let smaskStream = Buffer.from(alphaData);
+    const smaskDictParts = [
+      '/Type /XObject',
+      '/Subtype /Image',
+      `/Width ${widthPx}`,
+      `/Height ${heightPx}`,
+      '/ColorSpace /DeviceGray',
+      '/BitsPerComponent 8',
+      '/Decode [0 1]'
+    ];
+    if (compression === 'runLength') {
+      smaskStream = runLengthEncode(smaskStream);
+      smaskDictParts.push('/Filter /RunLengthDecode');
+    } else if (compression === 'lzw') {
+      smaskStream = lzwEncodeBuffer(smaskStream);
+      smaskDictParts.push('/Filter /LZWDecode');
+      smaskDictParts.push('/DecodeParms << /EarlyChange 1 >>');
+    }
+    smaskDictParts.push(`/Length ${smaskStream.length}`);
+    addStreamObject(smaskObjectId, `<< ${smaskDictParts.join(' ')} >>`, smaskStream);
+  }
 
   if (hasStandard) {
     addStreamObject(profileObjectId, `<< /N 4 /Alternate /DeviceCMYK /Length ${profileBytes.length} >>`, profileBytes);
@@ -433,11 +476,18 @@ function convertToCmykRaw(buffer) {
       }
       const { width, height, data: rgba } = data;
       const total = width * height;
-      const result = Buffer.alloc(total * 4);
-      for (let i = 0, j = 0; i < rgba.length; i += 4, j += 4) {
+      const cmykData = Buffer.alloc(total * 4);
+      const alphaData = Buffer.alloc(total);
+      let hasTransparency = false;
+      for (let i = 0, j = 0, p = 0; i < rgba.length; i += 4, j += 4, p += 1) {
         const r = rgba[i] / 255;
         const g = rgba[i + 1] / 255;
         const b = rgba[i + 2] / 255;
+        const alphaValue = rgba[i + 3];
+        alphaData[p] = alphaValue;
+        if (!hasTransparency && alphaValue < 255) {
+          hasTransparency = true;
+        }
         let k = 1 - Math.max(r, g, b);
         if (k < 0) {
           k = 0;
@@ -446,12 +496,12 @@ function convertToCmykRaw(buffer) {
         const c = (1 - r - k) / divisor;
         const m = (1 - g - k) / divisor;
         const y = (1 - b - k) / divisor;
-        result[j] = Math.round((Number.isNaN(c) ? 0 : c) * 255);
-        result[j + 1] = Math.round((Number.isNaN(m) ? 0 : m) * 255);
-        result[j + 2] = Math.round((Number.isNaN(y) ? 0 : y) * 255);
-        result[j + 3] = Math.round(k * 255);
+        cmykData[j] = Math.round((Number.isNaN(c) ? 0 : c) * 255);
+        cmykData[j + 1] = Math.round((Number.isNaN(m) ? 0 : m) * 255);
+        cmykData[j + 2] = Math.round((Number.isNaN(y) ? 0 : y) * 255);
+        cmykData[j + 3] = Math.round(k * 255);
       }
-      resolve({ data: result, width, height });
+      resolve({ cmykData, alphaData, hasTransparency, width, height });
     });
   });
 }
@@ -497,9 +547,17 @@ app.post('/convert', upload.single('image'), async (req, res) => {
 
   try {
     if (format === 'pdf') {
-      const { data, width, height } = await convertToCmykRaw(req.file.buffer);
+      const {
+        cmykData,
+        alphaData,
+        hasTransparency,
+        width,
+        height
+      } = await convertToCmykRaw(req.file.buffer);
       const pdfBuffer = buildPDF({
-        cmykData: data,
+        cmykData,
+        alphaData,
+        hasTransparency,
         widthPx: width,
         heightPx: height,
         dpi,
