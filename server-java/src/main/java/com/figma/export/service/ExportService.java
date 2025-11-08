@@ -21,6 +21,8 @@ import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.rendering.ImageType;
 import org.apache.pdfbox.rendering.PDFRenderer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -39,6 +41,8 @@ import java.util.TimeZone;
 
 @Service
 public class ExportService {
+
+    private static final Logger logger = LoggerFactory.getLogger(ExportService.class);
 
     private static final String FORMAT_PDF = "pdf";
     private static final String FORMAT_TIFF = "tiff";
@@ -83,13 +87,13 @@ public class ExportService {
         PdfStandard standard = PdfStandard.fromName(request.getPdfStandard());
         String effectiveVersion = standard.ensureVersion(request.getPdfVersion());
         int dpi = Math.max(request.getDpi(), 72);
-        boolean keepVector = request.isKeepVector();
-        if (keepVector && !(uploadType == UploadType.SVG || uploadType == UploadType.PDF)) {
+        boolean requestedKeepVector = request.isKeepVector();
+        if (requestedKeepVector && !(uploadType == UploadType.SVG || uploadType == UploadType.PDF)) {
             throw new ConversionException("Опция сохранения векторов доступна только для SVG или PDF источников.");
         }
-        keepVector = keepVector && (uploadType == UploadType.SVG || uploadType == UploadType.PDF);
-
-        PDDocument sourceDocument = createSourcePdfDocument(data, uploadType, request, dpi);
+        PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi);
+        PDDocument sourceDocument = sourceResult.document();
+        boolean keepVector = requestedKeepVector && sourceResult.vector();
         PDDocument rasterizedDocument = null;
         try {
             PDDocument workingDocument = sourceDocument;
@@ -140,29 +144,61 @@ public class ExportService {
         return new ExportResponse(tiffBytes, "image/tiff", disposition);
     }
 
-    private PDDocument createSourcePdfDocument(byte[] data, UploadType uploadType, ExportRequest request, int dpi) throws IOException {
+    private PdfDocumentResult createSourcePdfDocument(byte[] data, UploadType uploadType, ExportRequest request, int dpi) throws IOException {
         return switch (uploadType) {
             case SVG -> createPdfFromSvg(data, request);
-            case PDF -> loadPdf(data);
-            case IMAGE -> createPdfFromImage(data, request);
+            case PDF -> new PdfDocumentResult(loadPdf(data), true);
+            case IMAGE -> new PdfDocumentResult(createPdfFromImage(data, request), false);
             default -> throw new ConversionException("Неподдерживаемый тип загруженного файла для экспорта в PDF.");
         };
     }
 
-    private PDDocument createPdfFromSvg(byte[] data, ExportRequest request) throws IOException {
-        PDDocument document = new PDDocument();
-        float widthPt = pxToPoints(request.getWidthPx());
-        float heightPt = pxToPoints(request.getHeightPx());
-        SvgRenderResult renderResult = svgRenderer.renderSvg(data, document, widthPt, heightPt);
-        if (renderResult.widthPt() > 0 && renderResult.heightPt() > 0) {
-            PDPage page = renderResult.page();
-            page.setMediaBox(new PDRectangle(renderResult.widthPt(), renderResult.heightPt()));
+    private PdfDocumentResult createPdfFromSvg(byte[] data, ExportRequest request) throws IOException {
+        try {
+            PDDocument document = renderSvgAsVector(data, request);
+            return new PdfDocumentResult(document, true);
+        } catch (RuntimeException ex) {
+            logger.warn("Не удалось отрендерить SVG векторно, выполняется fallback в растр.", ex);
+            PDDocument document = renderSvgAsRasterPdf(data, request);
+            return new PdfDocumentResult(document, false);
         }
-        return document;
+    }
+
+    private PDDocument renderSvgAsVector(byte[] data, ExportRequest request) throws IOException {
+        PDDocument document = new PDDocument();
+        boolean success = false;
+        try {
+            float widthPt = pxToPoints(request.getWidthPx());
+            float heightPt = pxToPoints(request.getHeightPx());
+            SvgRenderResult renderResult = svgRenderer.renderSvg(data, document, widthPt, heightPt);
+            if (renderResult.widthPt() > 0 && renderResult.heightPt() > 0) {
+                PDPage page = renderResult.page();
+                page.setMediaBox(new PDRectangle(renderResult.widthPt(), renderResult.heightPt()));
+            }
+            success = true;
+            return document;
+        } finally {
+            if (!success) {
+                document.close();
+            }
+        }
+    }
+
+    private PDDocument renderSvgAsRasterPdf(byte[] data, ExportRequest request) throws IOException {
+        BufferedImage image = rasterizeSvgForImage(data, request);
+        return createPdfFromBufferedImage(image, request);
     }
 
     private PDDocument createPdfFromImage(byte[] data, ExportRequest request) throws IOException {
         BufferedImage image = readBufferedImage(data);
+        return createPdfFromBufferedImage(image, request);
+    }
+
+    private PDDocument createPdfFromBufferedImage(BufferedImage image, ExportRequest request) throws IOException {
+        if (image == null) {
+            throw new ConversionException("Не удалось растеризовать SVG для дальнейшей обработки.");
+        }
+
         int targetWidth = positiveOrDefault(request.getWidthPx(), image.getWidth());
         int targetHeight = positiveOrDefault(request.getHeightPx(), image.getHeight());
         if (image.getWidth() != targetWidth || image.getHeight() != targetHeight) {
@@ -351,5 +387,8 @@ public class ExportService {
         } catch (NumberFormatException ex) {
             return Float.NaN;
         }
+    }
+
+    private record PdfDocumentResult(PDDocument document, boolean vector) {
     }
 }
