@@ -1284,12 +1284,16 @@
           if (!serverUrl) {
             throw new Error('Не указан адрес сервера конвертации.');
           }
-      formData.append('pdfStandard', pdfStandard || 'none');
-      formData.append('tiffCompression', tiffCompression || 'none');
-      formData.append('tiffDpi', tiffDpi || 300);
-      formData.append('widthPx', item.widthPx || '');
-      formData.append('heightPx', item.heightPx || '');
-      formData.append('image', uploadBlob, `${item.name || 'export'}.${extension}`);
+          const resultBlob = await exportViaServer(item, {
+            format,
+            dpi,
+            pdfVersion,
+            pdfStandard,
+            tiffCompression,
+            tiffAntialias,
+            tiffDpi,
+            serverUrl
+          });
           const extension = format === 'pdf' ? 'pdf' : 'tiff';
           await saveBlob(resultBlob, `${exportName}.${extension}`);
         } catch (error) {
