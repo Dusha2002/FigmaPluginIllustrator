@@ -9,6 +9,7 @@ COPY server-java/mvnw.cmd ./mvnw.cmd
 COPY server-java/.mvn .mvn
 COPY server-java/pom.xml ./pom.xml
 
+RUN chmod +x mvnw
 RUN ./mvnw -B dependency:go-offline
 
 # Copy sources of the Spring Boot service
