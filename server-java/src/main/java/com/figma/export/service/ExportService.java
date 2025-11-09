@@ -49,6 +49,8 @@ public class ExportService {
     private static final String FORMAT_PDF = "pdf";
     private static final String FORMAT_TIFF = "tiff";
     private static final double PX_TO_POINT = 72d / 96d;
+    private static final int MAX_TIFF_DIMENSION = 6000;
+    private static final long MAX_TIFF_TOTAL_PIXELS = 36_000_000L;
 
     private final SvgRenderer svgRenderer;
     private final ImageProcessingService imageProcessingService;
@@ -126,6 +128,13 @@ public class ExportService {
 
         int targetWidth = positiveOrDefault(request.getWidthPx(), sourceImage.getWidth());
         int targetHeight = positiveOrDefault(request.getHeightPx(), sourceImage.getHeight());
+
+        int[] limitedSize = enforceTiffSizeLimits(targetWidth, targetHeight);
+        if (limitedSize[0] != targetWidth || limitedSize[1] != targetHeight) {
+            logger.info("TIFF размер {}x{} превышает лимиты, уменьшается до {}x{}", targetWidth, targetHeight, limitedSize[0], limitedSize[1]);
+            targetWidth = limitedSize[0];
+            targetHeight = limitedSize[1];
+        }
 
         if (sourceImage.getWidth() != targetWidth || sourceImage.getHeight() != targetHeight) {
             sourceImage = imageProcessingService.scaleImage(sourceImage, targetWidth, targetHeight);
@@ -366,6 +375,33 @@ public class ExportService {
 
     private int positiveOrDefault(Integer value, int fallback) {
         return value != null && value > 0 ? value : fallback;
+    }
+
+    private int[] enforceTiffSizeLimits(int width, int height) {
+        int clampedWidth = Math.max(1, width);
+        int clampedHeight = Math.max(1, height);
+        double scale = 1.0;
+
+        if (clampedWidth > MAX_TIFF_DIMENSION) {
+            scale = Math.min(scale, (double) MAX_TIFF_DIMENSION / clampedWidth);
+        }
+        if (clampedHeight > MAX_TIFF_DIMENSION) {
+            scale = Math.min(scale, (double) MAX_TIFF_DIMENSION / clampedHeight);
+        }
+
+        long totalPixels = (long) clampedWidth * clampedHeight;
+        if (totalPixels > MAX_TIFF_TOTAL_PIXELS) {
+            double pixelScale = Math.sqrt((double) MAX_TIFF_TOTAL_PIXELS / totalPixels);
+            scale = Math.min(scale, pixelScale);
+        }
+
+        if (scale < 1.0) {
+            int scaledWidth = Math.max(1, (int) Math.round(clampedWidth * scale));
+            int scaledHeight = Math.max(1, (int) Math.round(clampedHeight * scale));
+            return new int[]{scaledWidth, scaledHeight};
+        }
+
+        return new int[]{clampedWidth, clampedHeight};
     }
 
     private float pxToPoints(Integer value) {
