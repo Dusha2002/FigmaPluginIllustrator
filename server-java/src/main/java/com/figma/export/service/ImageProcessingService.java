@@ -2,10 +2,10 @@ package com.figma.export.service;
 
 import com.figma.export.color.ColorProfile;
 import com.figma.export.color.ColorProfileManager;
-import com.twelvemonkeys.imageio.plugins.tiff.BaselineTIFFTagSet;
-import com.twelvemonkeys.imageio.plugins.tiff.TIFFDirectory;
-import com.twelvemonkeys.imageio.plugins.tiff.TIFFField;
-import com.twelvemonkeys.imageio.plugins.tiff.TIFFRational;
+import com.twelvemonkeys.imageio.metadata.tiff.BaselineTIFFTagSet;
+import com.twelvemonkeys.imageio.metadata.tiff.TIFFDirectory;
+import com.twelvemonkeys.imageio.metadata.tiff.TIFFField;
+import com.twelvemonkeys.imageio.metadata.tiff.TIFFRational;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -292,16 +292,10 @@ public class ImageProcessingService {
         String nativeFormat = metadata.getNativeMetadataFormatName();
         if (nativeFormat != null && nativeFormat.startsWith("com_twelvemonkeys_imageio_plugins_tiff")) {
             try {
-                var directory = new com.twelvemonkeys.imageio.plugins.tiff.TIFFDirectory();
-                directory.add(com.twelvemonkeys.imageio.plugins.tiff.TIFFField.create(
-                        com.twelvemonkeys.imageio.plugins.tiff.BaselineTIFFTagSet.TAG_X_RESOLUTION,
-                        new com.twelvemonkeys.imageio.plugins.tiff.TIFFRational(dpi, 1)));
-                directory.add(com.twelvemonkeys.imageio.plugins.tiff.TIFFField.create(
-                        com.twelvemonkeys.imageio.plugins.tiff.BaselineTIFFTagSet.TAG_Y_RESOLUTION,
-                        new com.twelvemonkeys.imageio.plugins.tiff.TIFFRational(dpi, 1)));
-                directory.add(com.twelvemonkeys.imageio.plugins.tiff.TIFFField.create(
-                        com.twelvemonkeys.imageio.plugins.tiff.BaselineTIFFTagSet.TAG_RESOLUTION_UNIT,
-                        new char[]{2}));
+                TIFFDirectory directory = new TIFFDirectory();
+                directory.add(TIFFField.create(BaselineTIFFTagSet.TAG_X_RESOLUTION, new TIFFRational(dpi, 1)));
+                directory.add(TIFFField.create(BaselineTIFFTagSet.TAG_Y_RESOLUTION, new TIFFRational(dpi, 1)));
+                directory.add(TIFFField.create(BaselineTIFFTagSet.TAG_RESOLUTION_UNIT, new char[]{2}));
                 metadata.mergeTree(nativeFormat, directory.getAsTree(nativeFormat));
             } catch (IllegalArgumentException e) {
                 throw new IIOInvalidTreeException("Не удалось применить TIFF DPI данные", e, null);
@@ -318,20 +312,6 @@ public class ImageProcessingService {
         IIOMetadataNode node = new IIOMetadataNode(name);
         parent.appendChild(node);
         return node;
-    }
-
-    private IIOMetadataNode createRationalNode(int numerator, int denominator) {
-        IIOMetadataNode rational = new IIOMetadataNode("TIFFRational");
-        rational.setAttribute("value", numerator + "/" + denominator);
-        rational.setAttribute("numerator", Integer.toString(numerator));
-        rational.setAttribute("denominator", Integer.toString(denominator));
-        return rational;
-    }
-
-    private IIOMetadataNode createShortNode(int value) {
-        IIOMetadataNode shortNode = new IIOMetadataNode("TIFFShort");
-        shortNode.setAttribute("value", Integer.toString(value));
-        return shortNode;
     }
 
     private String selectCompressionType(String[] available, String requested) {
