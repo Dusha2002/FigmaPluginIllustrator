@@ -1280,17 +1280,13 @@
           setDistanceList(distances);
           break;
         }
-        case 'size-update': {
-          if (!message.success) {
-            alert(message.error || 'Не удалось изменить размеры');
-          }
+        case 'size-update':
+        case 'position-update':
+        case 'export-result':
+        case 'ui-dimensions':
+        case 'ui-preferences':
+        case 'theme-change':
           break;
-        }
-        case 'export-result': {
-          if (!message.success) {
-            hideExportOverlay();
-            setExportState(false);
-            alert(message.error || 'Ошибка экспорта');
             return;
           }
           processExportResult(message)

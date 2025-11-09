@@ -11,11 +11,7 @@ import java.util.List;
 @Configuration
 public class CorsConfig {
 
-    private static final List<String> ALLOWED_ORIGIN_PATTERNS = List.of(
-            "https://www.figma.com",
-            "https://*.figma.com",
-            "null"
-    );
+    private static final List<String> ALLOWED_ORIGIN_PATTERNS = List.of("*");
 
     @Bean
     public CorsFilter corsFilter() {
