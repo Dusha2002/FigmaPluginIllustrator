@@ -1282,13 +1282,11 @@
         }
         case 'size-update':
         case 'position-update':
-        case 'export-result':
         case 'ui-dimensions':
         case 'ui-preferences':
         case 'theme-change':
           break;
-            return;
-          }
+        case 'export-result': {
           processExportResult(message)
             .catch((error) => {
               console.error(error);
