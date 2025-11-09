@@ -336,17 +336,21 @@ public class ImageProcessingService {
     }
 
     private IIOMetadataNode createRationalNode(int numerator, int denominator) {
+        IIOMetadataNode rationals = new IIOMetadataNode("TIFFRationals");
         IIOMetadataNode rational = new IIOMetadataNode("TIFFRational");
         rational.setAttribute("value", numerator + "/" + denominator);
         rational.setAttribute("numerator", Integer.toString(numerator));
         rational.setAttribute("denominator", Integer.toString(denominator));
-        return rational;
+        rationals.appendChild(rational);
+        return rationals;
     }
 
     private IIOMetadataNode createShortNode(int value) {
+        IIOMetadataNode shorts = new IIOMetadataNode("TIFFShorts");
         IIOMetadataNode shortNode = new IIOMetadataNode("TIFFShort");
         shortNode.setAttribute("value", Integer.toString(value));
-        return shortNode;
+        shorts.appendChild(shortNode);
+        return shorts;
     }
 
     private String selectCompressionType(String[] available, String requested) {
