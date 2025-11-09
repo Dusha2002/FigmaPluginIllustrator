@@ -42,8 +42,8 @@ public class TiffWriter {
         long startNs = System.nanoTime();
         try (ByteArrayOutputStream buffer = new ByteArrayOutputStream();
              ImageOutputStream ios = ImageIO.createImageOutputStream(buffer)) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("TIFF write start: size={}x{}, ppi={}", image.getWidth(), image.getHeight(), ppi);
+            if (logger.isInfoEnabled()) {
+                logger.info("TIFF write start: size={}x{}, ppi={}", image.getWidth(), image.getHeight(), ppi);
             }
             writer.setOutput(ios);
             IIOMetadata metadata = writer.getDefaultImageMetadata(new ImageTypeSpecifier(image), writer.getDefaultWriteParam());
