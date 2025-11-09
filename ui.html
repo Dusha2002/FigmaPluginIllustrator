@@ -488,59 +488,9 @@
           </select>
         </label>
 
-        <div id="pdf-options" class="stack">
-          <label>
-            Версия PDF
-            <select id="pdf-version">
-              <option value="1.3">PDF 1.3</option>
-              <option value="1.4">PDF 1.4</option>
-              <option value="1.5">PDF 1.5</option>
-              <option value="1.6" selected>PDF 1.6</option>
-              <option value="1.7">PDF 1.7</option>
-            </select>
-          </label>
-          <label>
-            Стандарт PDF
-            <select id="pdf-standard">
-              <option value="none" selected>Нет</option>
-              <option value="PDF/X-1a:2001">PDF/X-1a:2001</option>
-              <option value="PDF/X-4:2008">PDF/X-4:2008</option>
-              <option value="PDF/X-3:2002">PDF/X-3:2002</option>
-              <option value="PDF/X-3:2003">PDF/X-3:2003</option>
-            </select>
-          </label>
-          <label>
-            ICC-профиль (CMYK)
-            <select id="pdf-color-profile">
-              <option value="coated_fogra39" selected>Coated FOGRA39 (ISO 12647-2)</option>
-              <option value="iso_coated_v2">ISO Coated v2 (ECI)</option>
-              <option value="us_web_coated_swop">US Web Coated (SWOP) v2</option>
-            </select>
-          </label>
-        </div>
-
-        <div id="tiff-options" class="stack hidden">
-          <label>
-            Сжатие TIFF
-            <select id="tiff-compression">
-              <option value="none" selected>Без сжатия</option>
-              <option value="lzw">LZW</option>
-            </select>
-          </label>
-          <label>
-            Сглаживание
-            <select id="tiff-antialias">
-              <option value="none" selected>Без сглаживания</option>
-              <option value="fast">Быстрое сглаживание</option>
-              <option value="balanced">Сбалансированное качество</option>
-              <option value="best">Максимальное качество</option>
-            </select>
-          </label>
-          <label>
-            PPI
-            <input id="tiff-ppi" type="number" min="1" value="300" />
-          </label>
-        </div>
+        <p class="muted" id="export-hint">
+          PDF экспортируется с профилем Coated FOGRA39 и версией 1.4. TIFF создаётся без сжатия и с фиксированным 72&nbsp;ppi.
+        </p>
       </div>
       <div class="panel-footer">
         <button id="export-cmyk">Экспортировать</button>
@@ -563,14 +513,14 @@
     const applySizeButton = document.getElementById('apply-size');
     const exportButton = document.getElementById('export-cmyk');
     const formatSelect = document.getElementById('export-format');
-    const pdfOptionsBlock = document.getElementById('pdf-options');
-    const tiffOptionsBlock = document.getElementById('tiff-options');
-    const pdfVersionSelect = document.getElementById('pdf-version');
-    const pdfStandardSelect = document.getElementById('pdf-standard');
-    const pdfColorProfileSelect = document.getElementById('pdf-color-profile');
-    const tiffCompressionSelect = document.getElementById('tiff-compression');
-    const tiffAntialiasSelect = document.getElementById('tiff-antialias');
-    const tiffPpiInput = document.getElementById('tiff-ppi');
+    const pdfOptionsBlock = null;
+    const tiffOptionsBlock = null;
+    const pdfVersionSelect = null;
+    const pdfStandardSelect = null;
+    const pdfColorProfileSelect = null;
+    const tiffCompressionSelect = null;
+    const tiffAntialiasSelect = null;
+    const tiffPpiInput = null;
     const lockProportionsCheckbox = document.getElementById('lock-proportions');
     const uiScaleSelect = document.getElementById('ui-scale');
     const uiSizeSelect = document.getElementById('ui-size');
@@ -685,12 +635,7 @@
     const DEFAULT_SERVER_URL = 'https://figmapluginillustrator.up.railway.app';
 
     const encoder = new TextEncoder();
-    const PDF_STANDARD_CONFIG = {
-      'PDF/X-1a:2001': { version: '1.3', pdfxVersion: 'PDF/X-1:2001', conformance: 'PDF/X-1a:2001' },
-      'PDF/X-3:2002': { version: '1.3', pdfxVersion: 'PDF/X-3:2002', conformance: 'PDF/X-3:2002' },
-      'PDF/X-3:2003': { version: '1.3', pdfxVersion: 'PDF/X-3:2003', conformance: 'PDF/X-3:2003' },
-      'PDF/X-4:2008': { version: '1.6', pdfxVersion: 'PDF/X-4', conformance: 'PDF/X-4:2008' }
-    };
+    const PDF_STANDARD_CONFIG = {};
 
     let coatedFograProfileBytes = null;
 
@@ -919,22 +864,17 @@
       return num.toString().padStart(10, '0');
     }
 
-    function buildPDF({ widthPx, heightPx, cmykData, dpi, pdfStandard, pdfVersion, pdfCompression }) {
-      const effectiveDpi = Math.max(dpi || 96, 1);
+    function buildPDF({ widthPx, heightPx, cmykData, dpi }) {
+      const effectiveDpi = Math.max(dpi || 72, 1);
       const widthPt = (widthPx / effectiveDpi) * 72;
       const heightPt = (heightPx / effectiveDpi) * 72;
-      const requestedVersion = pdfVersion || pdfVersionSelect.value || '1.4';
-      const selectedStandard = pdfStandard && pdfStandard !== 'none' ? pdfStandard : (pdfStandardSelect.value || 'none');
-      const standardConfig = PDF_STANDARD_CONFIG[selectedStandard] || null;
-      const effectivePdfVersion = standardConfig ? ensurePdfVersion(requestedVersion, standardConfig.version) : requestedVersion;
-      const header = `%PDF-${effectivePdfVersion}\n%âãÏÓ\n`;
+      const header = `%PDF-1.4\n%âãÏÓ\n`;
       const objects = [];
 
       const contentStream = `q\n${widthPt.toFixed(2)} 0 0 ${heightPt.toFixed(2)} 0 0 cm\n/Im0 Do\nQ\n`;
       const contentBytes = encoder.encode(contentStream);
-      const hasStandard = !!standardConfig;
-      const profileBytes = hasStandard ? getCoatedFograProfile() : null;
-      if (hasStandard && (!profileBytes || profileBytes.length === 0)) {
+      const profileBytes = getCoatedFograProfile();
+      if (!profileBytes || profileBytes.length === 0) {
         throw new Error('ICC профиль Coated FOGRA39 недоступен.');
       }
 
@@ -979,11 +919,9 @@
       }
 
       const catalogFields = ['/Type /Catalog', '/Pages 2 0 R'];
-      if (hasStandard) {
-        catalogFields.push('/Trapped false');
-        if (outputIntentObjectId) {
-          catalogFields.push(`/OutputIntents [${outputIntentObjectId} 0 R]`);
-        }
+      catalogFields.push('/Trapped false');
+      if (outputIntentObjectId) {
+        catalogFields.push(`/OutputIntents [${outputIntentObjectId} 0 R]`);
       }
       addPlainObject(CATALOG_ID, `<< ${catalogFields.join(' ')} >>`);
 
@@ -996,7 +934,6 @@
 
       addStreamObject(CONTENT_ID, `<< /Length ${contentBytes.length} >>`, contentBytes);
 
-      const compression = pdfCompression || pdfCompressionSelect.value || 'none';
       let imageStream = cmykData;
       const imageDictParts = [
         '/Type /XObject',
@@ -1006,16 +943,9 @@
         '/ColorSpace /DeviceCMYK',
         '/BitsPerComponent 8'
       ];
-      if (compression === 'runLength') {
-        imageStream = runLengthEncode(cmykData);
-        imageDictParts.push('/Filter /RunLengthDecode');
-      } else if (compression === 'lzw') {
-        imageStream = lzwEncode(cmykData);
-        imageDictParts.push('/Filter /LZWDecode');
-      }
       imageDictParts.push(`/Length ${imageStream.length}`);
+      imageDictParts.push(`/Intent /Perceptual`);
       if (profileObjectId) {
-        imageDictParts.push(`/Intent /Perceptual`);
         imageDictParts.push(`/ColorSpace [ /ICCBased ${profileObjectId} 0 R ]`);
       }
       addStreamObject(IMAGE_ID, `<< ${imageDictParts.join(' ')} >>`, imageStream);
@@ -1041,10 +971,6 @@
           `/Producer ${pdfString('Cascade CMYK Tools for Figma')}`,
           `/Creator ${pdfString('Cascade CMYK Tools for Figma')}`
         ];
-        if (standardConfig) {
-          infoFields.push(`/GTS_PDFXVersion ${pdfString(standardConfig.pdfxVersion)}`);
-          infoFields.push(`/GTS_PDFXConformance ${pdfString(standardConfig.conformance)}`);
-        }
         addPlainObject(infoObjectId, `<< ${infoFields.join(' ')} >>`);
       }
 
@@ -1093,9 +1019,9 @@
       return new Blob([result], { type: 'application/pdf' });
     }
 
-    function buildTIFF({ widthPx, heightPx, cmykData, dpi, tiffCompression, tiffPpi }) {
-      const compression = tiffCompression || tiffCompressionSelect.value || 'none';
-      const targetPpi = Math.max(dpi || tiffPpi || parseInt(tiffPpiInput.value, 10) || 300, 1);
+    function buildTIFF({ widthPx, heightPx, cmykData, dpi }) {
+      const compression = 'none';
+      const targetPpi = Math.max(dpi || 72, 1);
       const littleEndian = true;
 
       let imageBytes = cmykData;
@@ -1122,12 +1048,10 @@
         entries.push({ tag, type, count, valueBytes, extraBytes });
       }
 
-      const compressionCode = compression === 'lzw' ? 5 : 1;
-
       addEntry(256, 4, 1, u32(widthPx));
       addEntry(257, 4, 1, u32(heightPx));
       addEntry(258, 3, 4, null, createShorts([8, 8, 8, 8]));
-      addEntry(259, 3, 1, u16(compressionCode));
+      addEntry(259, 3, 1, u16(1));
       addEntry(262, 3, 1, u16(5));
       addEntry(273, 4, 1, null, imageBytes);
       addEntry(277, 3, 1, u16(4));
@@ -1248,13 +1172,13 @@
       formData.append('format', format);
       formData.append('name', item.name || 'export');
       formData.append('dpi', dpi);
-      formData.append('pdfVersion', pdfVersion || '1.4');
-      formData.append('pdfStandard', pdfStandard || 'none');
-      formData.append('pdfColorProfile', pdfColorProfile || 'coated_fogra39');
-      formData.append('tiffCompression', tiffCompression || 'none');
-      formData.append('tiffAntialias', tiffAntialias || 'none');
-      formData.append('tiffPpi', tiffPpi || 300);
-      formData.append('tiffDpi', tiffPpi || 300); // совместимость с сервером
+      formData.append('pdfVersion', '1.4');
+      formData.append('pdfStandard', 'none');
+      formData.append('pdfColorProfile', 'coated_fogra39');
+      formData.append('tiffCompression', 'none');
+      formData.append('tiffAntialias', 'none');
+      formData.append('tiffPpi', 72);
+      formData.append('tiffDpi', 72);
       formData.append('widthPx', item.widthPx || '');
       formData.append('heightPx', item.heightPx || '');
       formData.append('image', uploadBlob, `${item.name || 'export'}.${extension}`);
@@ -1284,11 +1208,6 @@
         items,
         format,
         dpi,
-        pdfStandard,
-        pdfVersion,
-        tiffCompression,
-        tiffAntialias,
-        tiffPpi,
         useServer,
         serverUrl
       } = message;
@@ -1303,11 +1222,6 @@
           const resultBlob = await exportViaServer(item, {
             format,
             dpi,
-            pdfVersion,
-            pdfStandard,
-            tiffCompression,
-            tiffAntialias,
-            tiffPpi,
             serverUrl
           });
           const extension = format === 'pdf' ? 'pdf' : 'tiff';
@@ -1655,46 +1569,15 @@
       showExportOverlay();
       const exportFormat = formatSelect.value;
       const payload = { format: exportFormat };
-      const basePpi = 96;
+      const basePpi = 72;
       payload.serverUrl = DEFAULT_SERVER_URL;
       payload.useServer = true;
       if (exportFormat === 'pdf') {
-        payload.pdfVersion = pdfVersionSelect.value;
-        payload.pdfStandard = pdfStandardSelect.value;
-        payload.pdfColorProfile = pdfColorProfileSelect ? pdfColorProfileSelect.value : 'coated_fogra39';
         payload.dpi = basePpi;
       } else {
-        const ppiValue = parseInt(tiffPpiInput.value, 10);
-        const tiffPpi = Math.max(Number.isFinite(ppiValue) ? ppiValue : basePpi, 1);
-        payload.tiffCompression = tiffCompressionSelect.value;
-        payload.tiffAntialias = tiffAntialiasSelect.value;
-        payload.tiffPpi = tiffPpi;
-        payload.tiffDpi = tiffPpi; // для обратной совместимости сервера
-        payload.dpi = tiffPpi;
-        payload.pdfColorProfile = pdfColorProfileSelect ? pdfColorProfileSelect.value : 'coated_fogra39';
+        payload.dpi = basePpi;
       }
       post('export-cmyk', payload);
-    });
-
-    if (tiffPpiInput) {
-      const handlePpiInputChange = () => {
-        const numeric = parseInt(tiffPpiInput.value, 10);
-        if (!Number.isFinite(numeric)) {
-          tiffPpiInput.value = '300';
-        }
-      };
-      tiffPpiInput.addEventListener('change', handlePpiInputChange);
-    }
-
-    formatSelect.addEventListener('change', () => {
-      const format = formatSelect.value;
-      if (format === 'pdf') {
-        pdfOptionsBlock.classList.remove('hidden');
-        tiffOptionsBlock.classList.add('hidden');
-      } else {
-        pdfOptionsBlock.classList.add('hidden');
-        tiffOptionsBlock.classList.remove('hidden');
-      }
     });
 
     applyUiScale(bodyElement.dataset.uiScale || 'medium');
