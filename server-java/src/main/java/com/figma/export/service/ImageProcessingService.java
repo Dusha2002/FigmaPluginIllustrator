@@ -277,67 +277,37 @@ public class ImageProcessingService {
         double pixelsPerMeter = dpi * inchesPerMeter;
         double pixelSize = 1000.0 / pixelsPerMeter;
 
-        IIOMetadataNode root = (IIOMetadataNode) metadata.getAsTree("javax_imageio_1.0");
-        IIOMetadataNode dimension = getOrCreateNode(root, "Dimension");
-        IIOMetadataNode horizontal = getOrCreateNode(dimension, "HorizontalPixelSize");
+        IIOMetadataNode root = new IIOMetadataNode("javax_imageio_1.0");
+        IIOMetadataNode dimension = new IIOMetadataNode("Dimension");
+        IIOMetadataNode horizontal = new IIOMetadataNode("HorizontalPixelSize");
         horizontal.setAttribute("value", Double.toString(pixelSize));
-        IIOMetadataNode vertical = getOrCreateNode(dimension, "VerticalPixelSize");
+        IIOMetadataNode vertical = new IIOMetadataNode("VerticalPixelSize");
         vertical.setAttribute("value", Double.toString(pixelSize));
+        dimension.appendChild(horizontal);
+        dimension.appendChild(vertical);
+        root.appendChild(dimension);
         metadata.mergeTree("javax_imageio_1.0", root);
 
         String nativeFormat = metadata.getNativeMetadataFormatName();
-        if (nativeFormat != null && nativeFormat.startsWith("com_sun_media_imageio_plugins_tiff")) {
-            IIOMetadataNode nativeRoot = (IIOMetadataNode) metadata.getAsTree(nativeFormat);
-            IIOMetadataNode ifd = getOrCreateTiffIfd(nativeRoot);
-            setOrReplaceTiffField(ifd, 282, "RATIONAL", createRationalNode(dpi, 1)); // XResolution
-            setOrReplaceTiffField(ifd, 283, "RATIONAL", createRationalNode(dpi, 1)); // YResolution
-            setOrReplaceTiffField(ifd, 296, "SHORT", createShortNode(2)); // ResolutionUnit: inches
+        if (nativeFormat != null && nativeFormat.startsWith("com_twelvemonkeys_imageio_plugins_tiff")) {
+            IIOMetadataNode nativeRoot = new IIOMetadataNode(nativeFormat);
+            IIOMetadataNode ifd = new IIOMetadataNode("TIFFIFD");
+            ifd.setAttribute("tagSets", "com.twelvemonkeys.imageio.plugins.tiff.BaselineTIFFTagSet");
+            ifd.appendChild(createTiffFieldNode(282, "RATIONAL", createRationalNode(dpi, 1)));
+            ifd.appendChild(createTiffFieldNode(283, "RATIONAL", createRationalNode(dpi, 1)));
+            ifd.appendChild(createTiffFieldNode(296, "SHORT", createShortNode(2)));
+            nativeRoot.appendChild(ifd);
             metadata.mergeTree(nativeFormat, nativeRoot);
         }
     }
 
-    private IIOMetadataNode getOrCreateNode(IIOMetadataNode parent, String name) {
-        for (int i = 0; i < parent.getLength(); i++) {
-            if (name.equals(parent.item(i).getNodeName())) {
-                return (IIOMetadataNode) parent.item(i);
-            }
-        }
-        IIOMetadataNode node = new IIOMetadataNode(name);
-        parent.appendChild(node);
-        return node;
-    }
-
-    private IIOMetadataNode getOrCreateTiffIfd(IIOMetadataNode root) {
-        for (int i = 0; i < root.getLength(); i++) {
-            var child = root.item(i);
-            if (child instanceof IIOMetadataNode node && "TIFFIFD".equals(node.getNodeName())) {
-                if (node.getAttribute("tagSets") == null || node.getAttribute("tagSets").isBlank()) {
-                    node.setAttribute("tagSets", "com.sun.media.imageio.plugins.tiff.BaselineTIFFTagSet");
-                }
-                return node;
-            }
-        }
-        IIOMetadataNode ifd = new IIOMetadataNode("TIFFIFD");
-        ifd.setAttribute("tagSets", "com.sun.media.imageio.plugins.tiff.BaselineTIFFTagSet");
-        root.appendChild(ifd);
-        return ifd;
-    }
-
-    private void setOrReplaceTiffField(IIOMetadataNode ifd, int tagNumber, String type, IIOMetadataNode valueNode) {
-        for (int i = 0; i < ifd.getLength(); i++) {
-            if (ifd.item(i) instanceof IIOMetadataNode node && "TIFFField".equals(node.getNodeName())) {
-                if (Integer.toString(tagNumber).equals(node.getAttribute("number"))) {
-                    ifd.removeChild(node);
-                    break;
-                }
-            }
-        }
+    private IIOMetadataNode createTiffFieldNode(int tagNumber, String type, IIOMetadataNode valueNode) {
         IIOMetadataNode field = new IIOMetadataNode("TIFFField");
         field.setAttribute("number", Integer.toString(tagNumber));
         field.setAttribute("type", type);
         field.setAttribute("count", "1");
         field.appendChild(valueNode);
-        ifd.appendChild(field);
+        return field;
     }
 
     private IIOMetadataNode createRationalNode(int numerator, int denominator) {
