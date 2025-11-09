@@ -2,6 +2,10 @@ package com.figma.export.service;
 
 import com.figma.export.color.ColorProfile;
 import com.figma.export.color.ColorProfileManager;
+import com.twelvemonkeys.imageio.plugins.tiff.BaselineTIFFTagSet;
+import com.twelvemonkeys.imageio.plugins.tiff.TIFFDirectory;
+import com.twelvemonkeys.imageio.plugins.tiff.TIFFField;
+import com.twelvemonkeys.imageio.plugins.tiff.TIFFRational;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
