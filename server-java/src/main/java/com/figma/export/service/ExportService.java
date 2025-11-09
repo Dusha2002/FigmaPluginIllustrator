@@ -5,6 +5,7 @@ import com.figma.export.color.ColorProfileManager;
 import com.figma.export.exception.ConversionException;
 import com.figma.export.model.ExportRequest;
 import com.figma.export.model.ExportResponse;
+import com.figma.export.model.TiffAntialias;
 import com.figma.export.model.UploadType;
 import com.figma.export.pdf.CmykPdfColorMapper;
 import com.figma.export.pdf.PdfStandard;
@@ -54,13 +55,22 @@ public class ExportService {
 
     private final SvgRenderer svgRenderer;
     private final ImageProcessingService imageProcessingService;
+    private final ImageInputLoader imageInputLoader;
+    private final TiffWriter tiffWriter;
+    private final JpegWriter jpegWriter;
     private final ColorProfileManager colorProfileManager;
 
     public ExportService(SvgRenderer svgRenderer,
                          ImageProcessingService imageProcessingService,
+                         ImageInputLoader imageInputLoader,
+                         TiffWriter tiffWriter,
+                         JpegWriter jpegWriter,
                          ColorProfileManager colorProfileManager) {
         this.svgRenderer = svgRenderer;
         this.imageProcessingService = imageProcessingService;
+        this.imageInputLoader = imageInputLoader;
+        this.tiffWriter = tiffWriter;
+        this.jpegWriter = jpegWriter;
         this.colorProfileManager = colorProfileManager;
     }
 
@@ -164,7 +174,7 @@ public class ExportService {
         flushIfDifferent(flattened, cmyk);
         flattened = null;
 
-        byte[] tiffBytes = imageProcessingService.writeTiff(cmyk, request.getTiffCompression(), ppi);
+        byte[] tiffBytes = tiffWriter.write(cmyk, request.getTiffCompression(), ppi);
         flushIfDifferent(cmyk, null);
         cmyk = null;
 
@@ -266,10 +276,10 @@ public class ExportService {
             PDPage originalPage = source.getPage(i);
             PDRectangle mediaBox = originalPage.getMediaBox();
             BufferedImage rendered = renderer.renderImageWithDPI(i, dpi, ImageType.ARGB);
-            rendered = imageProcessingService.applyAntialias(rendered, "balanced");
+            rendered = imageProcessingService.applyAntialias(rendered, TiffAntialias.BALANCED);
             BufferedImage flattened = imageProcessingService.flattenTransparency(rendered, Color.WHITE);
             BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, profile);
-            byte[] jpegBytes = imageProcessingService.writeJpegCmyk(cmyk, 0.92f, dpi);
+            byte[] jpegBytes = jpegWriter.writeCmyk(cmyk, 0.92f, dpi);
 
             PDPage page = new PDPage(new PDRectangle(mediaBox.getWidth(), mediaBox.getHeight()));
             result.addPage(page);
@@ -304,7 +314,7 @@ public class ExportService {
 
     private BufferedImage readBufferedImage(byte[] data) throws IOException {
         try {
-            return imageProcessingService.readImage(data);
+            return imageInputLoader.read(data);
         } catch (IOException ex) {
             throw new ConversionException("Не удалось прочитать растровое изображение.", ex);
         }

@@ -1,2 +1,5 @@
-com\figma\export\ImageProcessingServiceTest.class
 com\figma\export\ExportControllerIntegrationTest.class
+com\figma\export\ImageProcessingServiceTest.class
+com\figma\export\service\ImageInputLoaderTest$ImageProcessingServiceTestImage.class
+com\figma\export\service\ImageInputLoaderTest.class
+com\figma\export\service\TiffWriterTest.class

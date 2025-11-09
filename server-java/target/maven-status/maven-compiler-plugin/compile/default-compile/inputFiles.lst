@@ -1,6 +1,8 @@
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\color\ColorProfile.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\color\ColorProfileManager.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\config\CorsConfig.java
+C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\config\TiffAntialiasConverter.java
+C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\config\TiffCompressionConverter.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\controller\ExportController.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\exception\ConversionException.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\exception\ErrorResponse.java
@@ -8,9 +10,15 @@ C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\exception\Gl
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\ExportServerApplication.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\model\ExportRequest.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\model\ExportResponse.java
+C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\model\TiffAntialias.java
+C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\model\TiffCompression.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\model\UploadType.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\pdf\CmykPdfColorMapper.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\pdf\PdfStandard.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\service\ExportService.java
+C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\service\ImageInputLoader.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\service\ImageProcessingService.java
+C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\service\ImageResolutionMetadata.java
+C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\service\JpegWriter.java
+C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\service\TiffWriter.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\svg\SvgRenderer.java

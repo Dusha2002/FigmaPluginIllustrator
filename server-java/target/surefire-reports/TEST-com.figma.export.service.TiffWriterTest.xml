@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.figma.export.ExportControllerIntegrationTest" time="5.121" tests="3" errors="0" skipped="0" failures="0">
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.figma.export.service.TiffWriterTest" time="0.047" tests="1" errors="0" skipped="0" failures="1">
   <properties>
     <property name="java.specification.version" value="17"/>
     <property name="sun.cpu.isalist" value="amd64"/>
@@ -63,25 +63,18 @@
     <property name="java.class.version" value="61.0"/>
     <property name="LOGGED_APPLICATION_NAME" value="[figma-export-server] "/>
   </properties>
-  <testcase name="convertSvgToPdfReturnsPdf" classname="com.figma.export.ExportControllerIntegrationTest" time="1.614">
-    <system-out><![CDATA[Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
-19:35:12.472 [main] INFO org.springframework.test.context.support.AnnotationConfigContextLoaderUtils -- Could not detect default configuration classes for test class [com.figma.export.ExportControllerIntegrationTest]: ExportControllerIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
-19:35:12.620 [main] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration com.figma.export.ExportServerApplication for test class com.figma.export.ExportControllerIntegrationTest
-2025-11-09T19:35:13.113+07:00  INFO 23516 --- [figma-export-server] [           main] c.f.e.ExportControllerIntegrationTest    : Starting ExportControllerIntegrationTest using Java 17.0.12 with PID 23516 (started by niesp in C:\Projects\Figma plugin\server-java)
-2025-11-09T19:35:13.115+07:00  INFO 23516 --- [figma-export-server] [           main] c.f.e.ExportControllerIntegrationTest    : No active profile set, falling back to 1 default profile: "default"
-2025-11-09T19:35:14.342+07:00  INFO 23516 --- [figma-export-server] [           main] c.f.export.color.ColorProfileManager     : ICC-профиль 'coated_fogra39' загружен из 'profiles/CoatedFOGRA39.icc'.
-2025-11-09T19:35:14.349+07:00  INFO 23516 --- [figma-export-server] [           main] c.f.export.color.ColorProfileManager     : ICC-профиль 'iso_coated_v2' загружен из 'profiles/ISOcoated_v2_eci.icc'.
-2025-11-09T19:35:14.351+07:00  INFO 23516 --- [figma-export-server] [           main] c.f.export.color.ColorProfileManager     : ICC-профиль 'us_web_coated_swop' загружен из 'profiles/USWebCoatedSWOP.icc'.
-2025-11-09T19:35:15.310+07:00  INFO 23516 --- [figma-export-server] [           main] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
-2025-11-09T19:35:15.310+07:00  INFO 23516 --- [figma-export-server] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
-2025-11-09T19:35:15.322+07:00  INFO 23516 --- [figma-export-server] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 1 endpoint beneath base path '/actuator'
-2025-11-09T19:35:15.337+07:00  INFO 23516 --- [figma-export-server] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 25 ms
-2025-11-09T19:35:15.430+07:00  INFO 23516 --- [figma-export-server] [           main] c.f.e.ExportControllerIntegrationTest    : Started ExportControllerIntegrationTest in 2.612 seconds (process running for 3.794)
-]]></system-out>
+  <testcase name="writeSetsResolutionMetadata" classname="com.figma.export.service.TiffWriterTest" time="0.039">
+    <failure message="expected: &lt;300.0&gt; but was: &lt;NaN&gt;" type="org.opentest4j.AssertionFailedError"><![CDATA[org.opentest4j.AssertionFailedError: expected: <300.0> but was: <NaN>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:86)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:81)
+	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1014)
+	at com.figma.export.service.TiffWriterTest.writeSetsResolutionMetadata(TiffWriterTest.java:67)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+]]></failure>
   </testcase>
-  <testcase name="convertWithUnsupportedFormatReturnsBadRequest" classname="com.figma.export.ExportControllerIntegrationTest" time="0.109">
-    <system-out><![CDATA[2025-11-09T19:35:17.158+07:00  WARN 23516 --- [figma-export-server] [           main] c.f.e.exception.GlobalExceptionHandler   : Validation error: формат должен быть pdf или tiff
-]]></system-out>
-  </testcase>
-  <testcase name="convertSvgToPdfWithAlternativeProfile" classname="com.figma.export.ExportControllerIntegrationTest" time="0.145"/>
 </testsuite>

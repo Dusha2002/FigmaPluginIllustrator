@@ -3,6 +3,7 @@ package com.figma.export.model;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 
@@ -32,13 +33,11 @@ public class ExportRequest {
     @Pattern(regexp = "(?i)coated_fogra39|iso_coated_v2|us_web_coated_swop", message = "pdfColorProfile содержит неподдерживаемое значение")
     private String pdfColorProfile = DEFAULT_COLOR_PROFILE;
 
-    @NotBlank
-    @Pattern(regexp = "(?i)none|lzw|zip|deflate|jpeg", message = "tiffCompression содержит неподдерживаемое значение")
-    private String tiffCompression = "none";
+    @NotNull
+    private TiffCompression tiffCompression = TiffCompression.NONE;
 
-    @NotBlank
-    @Pattern(regexp = "(?i)none|fast|balanced|best", message = "tiffAntialias содержит неподдерживаемое значение")
-    private String tiffAntialias = "none";
+    @NotNull
+    private TiffAntialias tiffAntialias = TiffAntialias.NONE;
 
     @Min(1)
     @JsonAlias("tiffDpi")
@@ -98,20 +97,28 @@ public class ExportRequest {
         this.pdfColorProfile = pdfColorProfile;
     }
 
-    public String getTiffCompression() {
+    public TiffCompression getTiffCompression() {
         return tiffCompression;
     }
 
-    public void setTiffCompression(String tiffCompression) {
+    public void setTiffCompression(TiffCompression tiffCompression) {
         this.tiffCompression = tiffCompression;
     }
 
-    public String getTiffAntialias() {
+    public void setTiffCompression(String tiffCompression) {
+        this.tiffCompression = tiffCompression != null ? TiffCompression.from(tiffCompression) : null;
+    }
+
+    public TiffAntialias getTiffAntialias() {
         return tiffAntialias;
     }
 
-    public void setTiffAntialias(String tiffAntialias) {
+    public void setTiffAntialias(TiffAntialias tiffAntialias) {
         this.tiffAntialias = tiffAntialias;
+    }
+
+    public void setTiffAntialias(String tiffAntialias) {
+        this.tiffAntialias = tiffAntialias != null ? TiffAntialias.from(tiffAntialias) : null;
     }
 
     public int getTiffPpi() {
