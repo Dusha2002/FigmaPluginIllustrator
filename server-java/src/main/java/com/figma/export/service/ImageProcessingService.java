@@ -2,6 +2,8 @@ package com.figma.export.service;
 
 import com.figma.export.color.ColorProfile;
 import com.figma.export.color.ColorProfileManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.IIOImage;
@@ -29,6 +31,7 @@ import java.util.Locale;
 public class ImageProcessingService {
 
     private final ColorProfileManager colorProfileManager;
+    private static final Logger logger = LoggerFactory.getLogger(ImageProcessingService.class);
 
     private static final float[] FAST_KERNEL = {
             1f / 9f, 1f / 9f, 1f / 9f,
@@ -176,26 +179,38 @@ public class ImageProcessingService {
     }
 
     public byte[] writeTiff(BufferedImage cmykImage, String compression, int dpi) throws IOException {
-        Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("tiff");
+        long startNs = System.nanoTime();
+        Iterator<ImageWriter> writers = ImageIO.getImageWriters(new ImageTypeSpecifier(cmykImage), "tiff");
         if (!writers.hasNext()) {
-            throw new IOException("Не найден TIFF writer.");
+            logger.error("TIFF writer не найден для изображения {}x{}", cmykImage.getWidth(), cmykImage.getHeight());
+            throw new IOException("Не найден TIFF writer для данного изображения.");
         }
         ImageWriter writer = writers.next();
+        logger.info("TIFF writer выбран: {}", writer.getClass().getName());
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try (ImageOutputStream ios = ImageIO.createImageOutputStream(outputStream)) {
             writer.setOutput(ios);
             var writeParam = writer.getDefaultWriteParam();
-            if (writeParam.canWriteCompressed() && compression != null && !compression.equalsIgnoreCase("none")) {
+            if (writeParam.canWriteCompressed()) {
                 writeParam.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
                 String compressionType = selectCompressionType(writeParam.getCompressionTypes(), compression);
                 if (compressionType != null) {
+                    logger.info("TIFF compression type: {}", compressionType);
                     writeParam.setCompressionType(compressionType);
                 }
             }
             IIOMetadata metadata = createTiffMetadata(writer, cmykImage, dpi);
-            writer.write(null, new IIOImage(cmykImage, null, metadata), writeParam);
+            logger.info("Запись TIFF начата: {}x{}, dpi={}, compression={}", cmykImage.getWidth(), cmykImage.getHeight(), dpi, compression);
+            try {
+                writer.write(null, new IIOImage(cmykImage, null, metadata), writeParam);
+            } catch (IOException ex) {
+                logger.error("Ошибка записи TIFF", ex);
+                throw ex;
+            }
         } finally {
             writer.dispose();
+            long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
+            logger.info("Запись TIFF завершена за {} мс, размер вывода={} байт", elapsedMs, outputStream.size());
         }
         return outputStream.toByteArray();
     }
