@@ -44,7 +44,7 @@ class ExportControllerIntegrationTest {
                         .param("dpi", "150")
                         .param("pdfVersion", "1.4")
                         .param("pdfStandard", "none")
-                        .param("keepVector", "true")
+                        .param("pdfColorProfile", "coated_fogra39")
                         .param("tiffCompression", "none")
                         .param("tiffAntialias", "none")
                         .param("tiffDpi", "300"))
@@ -74,12 +74,47 @@ class ExportControllerIntegrationTest {
                         .param("dpi", "96")
                         .param("pdfVersion", "1.4")
                         .param("pdfStandard", "none")
-                        .param("keepVector", "false")
+                        .param("pdfColorProfile", "coated_fogra39")
                         .param("tiffCompression", "none")
                         .param("tiffAntialias", "none")
                         .param("tiffDpi", "300"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("формат")));
+    }
+
+    @Test
+    @DisplayName("POST /convert (SVG→PDF, ISO Coated v2)")
+    void convertSvgToPdfWithAlternativeProfile() throws Exception {
+        String svg = """
+                <svg xmlns='http://www.w3.org/2000/svg' width='60' height='60'>
+                  <circle cx='30' cy='30' r='25' fill='#ff6600'/>
+                </svg>
+                """;
+        MockMultipartFile file = new MockMultipartFile(
+                "image",
+                "test.svg",
+                "image/svg+xml",
+                svg.getBytes()
+        );
+
+        byte[] response = mockMvc.perform(multipart("/convert")
+                        .file(file)
+                        .param("format", "pdf")
+                        .param("name", "iso_profile")
+                        .param("dpi", "300")
+                        .param("pdfVersion", "1.6")
+                        .param("pdfStandard", "PDF/X-4:2008")
+                        .param("pdfColorProfile", "iso_coated_v2")
+                        .param("tiffCompression", "none")
+                        .param("tiffAntialias", "balanced")
+                        .param("tiffDpi", "300"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray();
+
+        assertThat(response).isNotEmpty();
     }
 }

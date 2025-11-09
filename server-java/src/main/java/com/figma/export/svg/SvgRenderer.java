@@ -15,6 +15,7 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
 import de.rototor.pdfbox.graphics2d.PdfBoxGraphics2D;
+import de.rototor.pdfbox.graphics2d.PdfBoxGraphics2DColorMapper;
 import org.springframework.stereotype.Component;
 import org.w3c.dom.svg.SVGDocument;
 
@@ -27,6 +28,14 @@ import java.io.IOException;
 public class SvgRenderer {
 
     public SvgRenderResult renderSvg(byte[] svgBytes, PDDocument document, float targetWidthPt, float targetHeightPt) throws IOException {
+        return renderSvg(svgBytes, document, targetWidthPt, targetHeightPt, null);
+    }
+
+    public SvgRenderResult renderSvg(byte[] svgBytes,
+                                     PDDocument document,
+                                     float targetWidthPt,
+                                     float targetHeightPt,
+                                     PdfBoxGraphics2DColorMapper colorMapper) throws IOException {
         SVGDocument svgDocument = loadDocument(svgBytes);
         BridgeContext bridgeContext = new BridgeContext(new UserAgentAdapter());
         bridgeContext.setDynamicState(BridgeContext.DYNAMIC);
@@ -57,6 +66,9 @@ public class SvgRenderer {
         document.addPage(page);
 
         PdfBoxGraphics2D graphics2D = new PdfBoxGraphics2D(document, widthPt, heightPt);
+        if (colorMapper != null) {
+            graphics2D.setColorMapper(colorMapper);
+        }
         AffineTransform transform = new AffineTransform();
         if (documentWidthPx > 0 && documentHeightPx > 0) {
             transform.scale(widthPt / documentWidthPx, heightPt / documentHeightPx);

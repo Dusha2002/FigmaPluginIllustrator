@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <title>CMYK Tools</title>
-  <script src="coated_fogra39_profile.js"></script>
   <style>
     :root {
       color-scheme: light;
@@ -510,9 +509,13 @@
               <option value="PDF/X-3:2003">PDF/X-3:2003</option>
             </select>
           </label>
-          <label class="checkbox">
-            <input type="checkbox" id="pdf-keep-vector" />
-            <span>С вектором (RGB, без CMYK и стандартов)</span>
+          <label>
+            ICC-профиль (CMYK)
+            <select id="pdf-color-profile">
+              <option value="coated_fogra39" selected>Coated FOGRA39 (ISO 12647-2)</option>
+              <option value="iso_coated_v2">ISO Coated v2 (ECI)</option>
+              <option value="us_web_coated_swop">US Web Coated (SWOP) v2</option>
+            </select>
           </label>
         </div>
 
@@ -528,8 +531,9 @@
             Сглаживание
             <select id="tiff-antialias">
               <option value="none" selected>Без сглаживания</option>
-              <option value="best-objects">Лучшее качество объектов (суперсемплинг)</option>
-              <option value="best-type">Лучшее качество текста (хинтовка)</option>
+              <option value="fast">Быстрое сглаживание</option>
+              <option value="balanced">Сбалансированное качество</option>
+              <option value="best">Максимальное качество</option>
             </select>
           </label>
           <label>
@@ -563,7 +567,7 @@
     const tiffOptionsBlock = document.getElementById('tiff-options');
     const pdfVersionSelect = document.getElementById('pdf-version');
     const pdfStandardSelect = document.getElementById('pdf-standard');
-    const pdfKeepVectorCheckbox = document.getElementById('pdf-keep-vector');
+    const pdfColorProfileSelect = document.getElementById('pdf-color-profile');
     const tiffCompressionSelect = document.getElementById('tiff-compression');
     const tiffAntialiasSelect = document.getElementById('tiff-antialias');
     const tiffPpiInput = document.getElementById('tiff-ppi');
@@ -586,35 +590,6 @@
     let manualThemeOverride = null;
     let isApplyingPreferences = false;
     let settingsExpanded = false;
-
-    function updatePdfVectorState() {
-      if (!pdfKeepVectorCheckbox || !pdfStandardSelect) {
-        return;
-      }
-      if (pdfKeepVectorCheckbox.checked) {
-        pdfStandardSelect.value = 'none';
-        pdfStandardSelect.disabled = true;
-      } else {
-        pdfStandardSelect.disabled = false;
-      }
-    }
-
-    if (pdfKeepVectorCheckbox) {
-      pdfKeepVectorCheckbox.addEventListener('change', () => {
-        updatePdfVectorState();
-      });
-    }
-
-    if (pdfStandardSelect) {
-      pdfStandardSelect.addEventListener('change', () => {
-        if (pdfStandardSelect.value !== 'none' && pdfKeepVectorCheckbox && pdfKeepVectorCheckbox.checked) {
-          pdfKeepVectorCheckbox.checked = false;
-        }
-        updatePdfVectorState();
-      });
-    }
-
-    updatePdfVectorState();
 
     function post(type, payload) {
       const message = { type };
@@ -1248,7 +1223,7 @@
         dpi,
         pdfVersion,
         pdfStandard,
-        keepVector,
+        pdfColorProfile,
         tiffCompression,
         tiffAntialias,
         tiffDpi,
@@ -1275,7 +1250,7 @@
       formData.append('dpi', dpi);
       formData.append('pdfVersion', pdfVersion || '1.4');
       formData.append('pdfStandard', pdfStandard || 'none');
-      formData.append('keepVector', keepVector ? 'true' : 'false');
+      formData.append('pdfColorProfile', pdfColorProfile || 'coated_fogra39');
       formData.append('tiffCompression', tiffCompression || 'none');
       formData.append('tiffAntialias', tiffAntialias || 'none');
       formData.append('tiffDpi', tiffDpi || 300);
@@ -1314,8 +1289,7 @@
         tiffAntialias,
         tiffDpi,
         useServer,
-        serverUrl,
-        keepVector
+        serverUrl
       } = message;
 
       for (const item of items) {
@@ -1330,7 +1304,6 @@
             dpi,
             pdfVersion,
             pdfStandard,
-            keepVector,
             tiffCompression,
             tiffAntialias,
             tiffDpi,
@@ -1687,7 +1660,7 @@
       if (exportFormat === 'pdf') {
         payload.pdfVersion = pdfVersionSelect.value;
         payload.pdfStandard = pdfStandardSelect.value;
-        payload.keepVector = !!(pdfKeepVectorCheckbox && pdfKeepVectorCheckbox.checked);
+        payload.pdfColorProfile = pdfColorProfileSelect ? pdfColorProfileSelect.value : 'coated_fogra39';
         payload.dpi = baseDpi;
       } else {
         const ppiValue = parseInt(tiffPpiInput.value, 10);
@@ -1696,6 +1669,7 @@
         payload.tiffAntialias = tiffAntialiasSelect.value;
         payload.tiffDpi = tiffPpi;
         payload.dpi = tiffPpi;
+        payload.pdfColorProfile = pdfColorProfileSelect ? pdfColorProfileSelect.value : 'coated_fogra39';
       }
       post('export-cmyk', payload);
     });

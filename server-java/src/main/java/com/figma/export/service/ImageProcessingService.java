@@ -1,5 +1,6 @@
 package com.figma.export.service;
 
+import com.figma.export.color.ColorProfile;
 import com.figma.export.color.ColorProfileManager;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +17,8 @@ import java.awt.*;
 import java.awt.color.ColorSpace;
 import java.awt.color.ICC_ColorSpace;
 import java.awt.image.*;
+import java.awt.image.ConvolveOp;
+import java.awt.image.Kernel;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -26,6 +29,26 @@ import java.util.Locale;
 public class ImageProcessingService {
 
     private final ColorProfileManager colorProfileManager;
+
+    private static final float[] FAST_KERNEL = {
+            1f / 9f, 1f / 9f, 1f / 9f,
+            1f / 9f, 1f / 9f, 1f / 9f,
+            1f / 9f, 1f / 9f, 1f / 9f
+    };
+
+    private static final float[] BALANCED_KERNEL = {
+            1f / 16f, 2f / 16f, 1f / 16f,
+            2f / 16f, 4f / 16f, 2f / 16f,
+            1f / 16f, 2f / 16f, 1f / 16f
+    };
+
+    private static final float[] BEST_KERNEL = {
+            1f / 273f, 4f / 273f, 7f / 273f, 4f / 273f, 1f / 273f,
+            4f / 273f, 16f / 273f, 26f / 273f, 16f / 273f, 4f / 273f,
+            7f / 273f, 26f / 273f, 41f / 273f, 26f / 273f, 7f / 273f,
+            4f / 273f, 16f / 273f, 26f / 273f, 16f / 273f, 4f / 273f,
+            1f / 273f, 4f / 273f, 7f / 273f, 4f / 273f, 1f / 273f
+    };
 
     static {
         ImageIO.scanForPlugins();
@@ -93,8 +116,13 @@ public class ImageProcessingService {
     }
 
     public BufferedImage convertToCmyk(BufferedImage sourceRgb) {
+        return convertToCmyk(sourceRgb, null);
+    }
+
+    public BufferedImage convertToCmyk(BufferedImage sourceRgb, ColorProfile profile) {
         BufferedImage rgb = ensureRgb(sourceRgb);
-        ICC_ColorSpace cmykSpace = (ICC_ColorSpace) colorProfileManager.getCmykColorSpace();
+        ColorProfile effectiveProfile = profile != null ? profile : colorProfileManager.getDefaultProfile();
+        ICC_ColorSpace cmykSpace = effectiveProfile.getColorSpace();
         int width = rgb.getWidth();
         int height = rgb.getHeight();
         int[] bits = {8, 8, 8, 8};
@@ -105,6 +133,31 @@ public class ImageProcessingService {
         ColorConvertOp convertOp = new ColorConvertOp(rgbSpace, cmykSpace, null);
         convertOp.filter(rgb, cmykImage);
         return cmykImage;
+    }
+
+    public BufferedImage applyAntialias(BufferedImage source, String quality) {
+        if (source == null || quality == null) {
+            return source;
+        }
+        String normalized = quality.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "fast" -> applyKernel(source, FAST_KERNEL, 3, 1);
+            case "balanced" -> applyKernel(source, BALANCED_KERNEL, 3, 1);
+            case "best" -> applyKernel(source, BEST_KERNEL, 5, 2);
+            default -> source;
+        };
+    }
+
+    private BufferedImage applyKernel(BufferedImage source, float[] kernelData, int size, int iterations) {
+        BufferedImage current = ensureArgb(source);
+        Kernel kernel = new Kernel(size, size, kernelData);
+        for (int i = 0; i < iterations; i++) {
+            BufferedImage target = new BufferedImage(current.getWidth(), current.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            ConvolveOp op = new ConvolveOp(kernel, ConvolveOp.EDGE_NO_OP, null);
+            op.filter(current, target);
+            current = target;
+        }
+        return current;
     }
 
     private BufferedImage ensureRgb(BufferedImage source) {

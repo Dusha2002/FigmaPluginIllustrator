@@ -1,10 +1,12 @@
 package com.figma.export.service;
 
+import com.figma.export.color.ColorProfile;
 import com.figma.export.color.ColorProfileManager;
 import com.figma.export.exception.ConversionException;
 import com.figma.export.model.ExportRequest;
 import com.figma.export.model.ExportResponse;
 import com.figma.export.model.UploadType;
+import com.figma.export.pdf.CmykPdfColorMapper;
 import com.figma.export.pdf.PdfStandard;
 import com.figma.export.svg.SvgRenderer;
 import com.figma.export.svg.SvgRenderer.SvgRenderResult;
@@ -84,27 +86,22 @@ public class ExportService {
     }
 
     private ExportResponse convertToPdf(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
+        ColorProfile colorProfile = colorProfileManager.getProfileOrDefault(request.getPdfColorProfile());
         PdfStandard standard = PdfStandard.fromName(request.getPdfStandard());
         String effectiveVersion = standard.ensureVersion(request.getPdfVersion());
         int dpi = Math.max(request.getDpi(), 72);
-        boolean requestedKeepVector = request.isKeepVector();
-        if (requestedKeepVector && !(uploadType == UploadType.SVG || uploadType == UploadType.PDF)) {
-            throw new ConversionException("Опция сохранения векторов доступна только для SVG или PDF источников.");
-        }
-        PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi);
+        PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi, colorProfile);
         PDDocument sourceDocument = sourceResult.document();
-        boolean keepVector = requestedKeepVector && sourceResult.vector();
         PDDocument rasterizedDocument = null;
         try {
             PDDocument workingDocument = sourceDocument;
-            if (!keepVector) {
-                rasterizedDocument = rasterizeToCmyk(workingDocument, dpi);
+            if (!sourceResult.vector()) {
+                rasterizedDocument = rasterizeToCmyk(workingDocument, dpi, colorProfile);
                 workingDocument = rasterizedDocument;
             }
 
-            applyPdfStandard(workingDocument, standard, effectiveVersion);
+            applyPdfStandard(workingDocument, standard, effectiveVersion, colorProfile);
             byte[] pdfBytes = saveDocument(workingDocument);
-
             ContentDisposition disposition = ContentDisposition.attachment()
                     .filename(baseName + ".pdf", StandardCharsets.UTF_8)
                     .build();
@@ -119,6 +116,7 @@ public class ExportService {
 
     private ExportResponse convertToTiff(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
         int dpi = request.getTiffDpi() > 0 ? request.getTiffDpi() : Math.max(request.getDpi(), 72);
+        ColorProfile colorProfile = colorProfileManager.getProfileOrDefault(request.getPdfColorProfile());
         BufferedImage sourceImage = switch (uploadType) {
             case SVG -> rasterizeSvgForImage(data, request);
             case PDF -> renderPdfPage(data, 0, dpi);
@@ -134,8 +132,9 @@ public class ExportService {
         }
 
         BufferedImage argb = imageProcessingService.ensureArgb(sourceImage);
+        argb = imageProcessingService.applyAntialias(argb, request.getTiffAntialias());
         BufferedImage flattened = imageProcessingService.flattenTransparency(argb, Color.WHITE);
-        BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened);
+        BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, colorProfile);
         byte[] tiffBytes = imageProcessingService.writeTiff(cmyk, request.getTiffCompression(), dpi);
 
         ContentDisposition disposition = ContentDisposition.attachment()
@@ -144,18 +143,18 @@ public class ExportService {
         return new ExportResponse(tiffBytes, "image/tiff", disposition);
     }
 
-    private PdfDocumentResult createSourcePdfDocument(byte[] data, UploadType uploadType, ExportRequest request, int dpi) throws IOException {
+    private PdfDocumentResult createSourcePdfDocument(byte[] data, UploadType uploadType, ExportRequest request, int dpi, ColorProfile colorProfile) throws IOException {
         return switch (uploadType) {
-            case SVG -> createPdfFromSvg(data, request);
+            case SVG -> createPdfFromSvg(data, request, colorProfile);
             case PDF -> new PdfDocumentResult(loadPdf(data), true);
             case IMAGE -> new PdfDocumentResult(createPdfFromImage(data, request), false);
             default -> throw new ConversionException("Неподдерживаемый тип загруженного файла для экспорта в PDF.");
         };
     }
 
-    private PdfDocumentResult createPdfFromSvg(byte[] data, ExportRequest request) throws IOException {
+    private PdfDocumentResult createPdfFromSvg(byte[] data, ExportRequest request, ColorProfile colorProfile) throws IOException {
         try {
-            PDDocument document = renderSvgAsVector(data, request);
+            PDDocument document = renderSvgAsVector(data, request, colorProfile);
             return new PdfDocumentResult(document, true);
         } catch (RuntimeException ex) {
             logger.warn("Не удалось отрендерить SVG векторно, выполняется fallback в растр.", ex);
@@ -164,13 +163,13 @@ public class ExportService {
         }
     }
 
-    private PDDocument renderSvgAsVector(byte[] data, ExportRequest request) throws IOException {
+    private PDDocument renderSvgAsVector(byte[] data, ExportRequest request, ColorProfile colorProfile) throws IOException {
         PDDocument document = new PDDocument();
         boolean success = false;
         try {
             float widthPt = pxToPoints(request.getWidthPx());
             float heightPt = pxToPoints(request.getHeightPx());
-            SvgRenderResult renderResult = svgRenderer.renderSvg(data, document, widthPt, heightPt);
+            SvgRenderResult renderResult = svgRenderer.renderSvg(data, document, widthPt, heightPt, new CmykPdfColorMapper(colorProfile.getColorSpace()));
             if (renderResult.widthPt() > 0 && renderResult.heightPt() > 0) {
                 PDPage page = renderResult.page();
                 page.setMediaBox(new PDRectangle(renderResult.widthPt(), renderResult.heightPt()));
@@ -218,7 +217,7 @@ public class ExportService {
         return document;
     }
 
-    private PDDocument rasterizeToCmyk(PDDocument source, int dpi) throws IOException {
+    private PDDocument rasterizeToCmyk(PDDocument source, int dpi, ColorProfile profile) throws IOException {
         PDDocument result = new PDDocument();
         PDFRenderer renderer = new PDFRenderer(source);
         int pageCount = source.getNumberOfPages();
@@ -226,8 +225,9 @@ public class ExportService {
             PDPage originalPage = source.getPage(i);
             PDRectangle mediaBox = originalPage.getMediaBox();
             BufferedImage rendered = renderer.renderImageWithDPI(i, dpi, ImageType.ARGB);
+            rendered = imageProcessingService.applyAntialias(rendered, "balanced");
             BufferedImage flattened = imageProcessingService.flattenTransparency(rendered, Color.WHITE);
-            BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened);
+            BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, profile);
             byte[] jpegBytes = imageProcessingService.writeJpegCmyk(cmyk, 0.92f, dpi);
 
             PDPage page = new PDPage(new PDRectangle(mediaBox.getWidth(), mediaBox.getHeight()));
@@ -277,7 +277,7 @@ public class ExportService {
         }
     }
 
-    private void applyPdfStandard(PDDocument document, PdfStandard standard, String effectiveVersion) throws IOException {
+    private void applyPdfStandard(PDDocument document, PdfStandard standard, String effectiveVersion, ColorProfile profile) throws IOException {
         float version = parsePdfVersion(effectiveVersion);
         if (!Float.isNaN(version)) {
             document.setVersion(version);
@@ -291,6 +291,7 @@ public class ExportService {
         information.setProducer("Figma Export Server");
         information.setCreator("Figma Export Server");
         information.setKeywords(standard.getId());
+        information.setTrapped("False");
         Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
         calendar.setTimeInMillis(Instant.now().toEpochMilli());
         information.setCreationDate(calendar);
@@ -301,10 +302,10 @@ public class ExportService {
         if (outputIntents != null) {
             outputIntents.clear();
         }
-        PDOutputIntent intent = new PDOutputIntent(document, new ByteArrayInputStream(colorProfileManager.getCmykProfileBytes()));
-        intent.setInfo("Coated FOGRA39");
-        intent.setOutputCondition("Coated FOGRA39");
-        intent.setOutputConditionIdentifier("Coated FOGRA39");
+        PDOutputIntent intent = new PDOutputIntent(document, new ByteArrayInputStream(profile.getIccBytes()));
+        intent.setInfo(profile.getDisplayName());
+        intent.setOutputCondition(profile.getOutputCondition());
+        intent.setOutputConditionIdentifier(profile.getOutputConditionIdentifier());
         intent.setRegistryName("http://www.color.org");
         catalog.addOutputIntent(intent);
 
