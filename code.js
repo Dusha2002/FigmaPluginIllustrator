@@ -425,7 +425,9 @@ async function exportSelection(settings) {
   const serverUrl = settings && typeof settings.serverUrl === 'string' && settings.serverUrl.trim().length > 0
     ? settings.serverUrl
     : (typeof DEFAULT_SERVER_URL === 'undefined' ? '' : DEFAULT_SERVER_URL);
-  const scale = Math.max(requestedPpi / basePpi, 0.01);
+  const exportScale = exportFormat === 'tiff'
+    ? 1
+    : Math.max(requestedPpi / basePpi, 0.01);
   const selection = figma.currentPage.selection;
   if (selection.length === 0) {
     throw new Error('Нет выделенных объектов для экспорта.');
@@ -445,16 +447,16 @@ async function exportSelection(settings) {
         format: 'PNG',
         useAbsoluteBounds: true
       };
-    if (exportFormat !== 'pdf' && Math.abs(scale - 1) > 0.0001) {
-      exportSettings.constraint = { type: 'SCALE', value: scale };
+    if (exportFormat !== 'pdf' && Math.abs(exportScale - 1) > 0.0001) {
+      exportSettings.constraint = { type: 'SCALE', value: exportScale };
     }
     const bytes = await node.exportAsync(exportSettings);
     const baseName = sanitizeName(node.name, `export_${i + 1}`);
     const bounds = node.absoluteRenderBounds;
     const baseWidth = bounds ? bounds.width : (node.width || 0);
     const baseHeight = bounds ? bounds.height : (node.height || 0);
-    const widthPx = Math.max(1, Math.round(baseWidth * scale));
-    const heightPx = Math.max(1, Math.round(baseHeight * scale));
+    const widthPx = Math.max(1, Math.round(baseWidth * exportScale));
+    const heightPx = Math.max(1, Math.round(baseHeight * exportScale));
     exported.push({
       name: baseName,
       data: bytes,
