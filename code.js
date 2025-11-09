@@ -1,4 +1,4 @@
-const DEFAULT_PPI = 96;
+const DEFAULT_PPI = 72;
 const MM_PER_PX = 25.4 / DEFAULT_PPI;
 const PX_PER_MM = DEFAULT_PPI / 25.4;
 const DEFAULT_SERVER_URL = 'https://figmapluginillustrator.up.railway.app';
@@ -405,22 +405,6 @@ async function exportSelection(settings) {
   const requestedPpi = settings && typeof settings.dpi === 'number'
     ? Math.max(settings.dpi, 1)
     : basePpi;
-  const pdfStandard = exportFormat === 'pdf' && settings && typeof settings.pdfStandard === 'string'
-    ? settings.pdfStandard
-    : 'none';
-  const pdfVersion = exportFormat === 'pdf' && settings && typeof settings.pdfVersion === 'string'
-    ? settings.pdfVersion
-    : '1.4';
-  const pdfColorProfile = exportFormat === 'pdf' && settings && typeof settings.pdfColorProfile === 'string'
-    ? settings.pdfColorProfile
-    : 'coated_fogra39';
-  const tiffCompression = exportFormat === 'tiff' && settings && typeof settings.tiffCompression === 'string'
-    ? settings.tiffCompression
-    : 'none';
-  const tiffAntialias = exportFormat === 'tiff' && settings && typeof settings.tiffAntialias === 'string'
-    ? settings.tiffAntialias
-    : 'none';
-  const tiffPpi = requestedPpi;
   const useServer = true;
   const serverUrl = settings && typeof settings.serverUrl === 'string' && settings.serverUrl.trim().length > 0
     ? settings.serverUrl
@@ -472,12 +456,6 @@ async function exportSelection(settings) {
     items: exported,
     format: exportFormat,
     dpi: effectivePpi,
-    pdfStandard,
-    pdfVersion,
-    pdfColorProfile,
-    tiffCompression,
-    tiffAntialias,
-    tiffPpi,
     useServer: true,
     serverUrl
   };
@@ -517,12 +495,6 @@ figma.ui.onmessage = async (message) => {
           items: result.items,
           format: result.format,
           dpi: result.dpi,
-          pdfStandard: result.pdfStandard,
-          pdfVersion: result.pdfVersion,
-          pdfColorProfile: result.pdfColorProfile,
-          tiffCompression: result.tiffCompression,
-          tiffAntialias: result.tiffAntialias,
-          tiffPpi: result.tiffPpi,
           useServer: result.useServer,
           serverUrl: result.serverUrl
         });
