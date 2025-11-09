@@ -117,6 +117,7 @@ public class ExportService {
     }
 
     private ExportResponse convertToTiff(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
+        long startNs = System.nanoTime();
         int dpi = request.getTiffDpi() > 0 ? request.getTiffDpi() : Math.max(request.getDpi(), 72);
         ColorProfile colorProfile = colorProfileManager.getProfileOrDefault(request.getPdfColorProfile());
         BufferedImage sourceImage = switch (uploadType) {
@@ -125,6 +126,8 @@ public class ExportService {
             case IMAGE -> readBufferedImage(data);
             default -> throw new ConversionException("Неподдерживаемый тип загруженного файла для экспорта в TIFF.");
         };
+
+        logTiffStage("source", baseName, sourceImage);
 
         int targetWidth = positiveOrDefault(request.getWidthPx(), sourceImage.getWidth());
         int targetHeight = positiveOrDefault(request.getHeightPx(), sourceImage.getHeight());
@@ -138,13 +141,23 @@ public class ExportService {
 
         if (sourceImage.getWidth() != targetWidth || sourceImage.getHeight() != targetHeight) {
             sourceImage = imageProcessingService.scaleImage(sourceImage, targetWidth, targetHeight);
+            logTiffStage("scaled", baseName, sourceImage);
         }
 
         BufferedImage argb = imageProcessingService.ensureArgb(sourceImage);
+        logTiffStage("argb", baseName, argb);
         argb = imageProcessingService.applyAntialias(argb, request.getTiffAntialias());
+        logTiffStage("antialias", baseName, argb);
         BufferedImage flattened = imageProcessingService.flattenTransparency(argb, Color.WHITE);
+        logTiffStage("flattened", baseName, flattened);
         BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, colorProfile);
+        logTiffStage("cmyk", baseName, cmyk);
         byte[] tiffBytes = imageProcessingService.writeTiff(cmyk, request.getTiffCompression(), dpi);
+
+        long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
+        double bytesMb = tiffBytes.length / (1024d * 1024d);
+        logMemoryUsage("tiff-bytes", baseName, tiffBytes.length, null);
+        logger.info("TIFF экспорт завершён: name={}, размер={} байт ({:.2f} МБ), dpi={}, время={} мс", baseName, tiffBytes.length, bytesMb, dpi, elapsedMs);
 
         ContentDisposition disposition = ContentDisposition.attachment()
                 .filename(baseName + ".tiff", StandardCharsets.UTF_8)
@@ -402,6 +415,28 @@ public class ExportService {
         }
 
         return new int[]{clampedWidth, clampedHeight};
+    }
+
+    private void logTiffStage(String stage, String baseName, BufferedImage image) {
+        if (!logger.isInfoEnabled() || image == null) {
+            return;
+        }
+        logMemoryUsage(stage, baseName, image.getWidth() * image.getHeight(), image);
+    }
+
+    private void logMemoryUsage(String stage, String baseName, long payloadSize, BufferedImage image) {
+        if (!logger.isInfoEnabled()) {
+            return;
+        }
+        Runtime runtime = Runtime.getRuntime();
+        long usedBytes = runtime.totalMemory() - runtime.freeMemory();
+        double usedMb = usedBytes / (1024d * 1024d);
+        if (image != null) {
+            logger.info("TIFF стадия {}: name={}, размер={}x{}, пикселей={}, память={:.2f} МБ",
+                    stage, baseName, image.getWidth(), image.getHeight(), image.getWidth() * (long) image.getHeight(), usedMb);
+        } else {
+            logger.info("TIFF стадия {}: name={}, payload={}, память={:.2f} МБ", stage, baseName, payloadSize, usedMb);
+        }
     }
 
     private float pxToPoints(Integer value) {
