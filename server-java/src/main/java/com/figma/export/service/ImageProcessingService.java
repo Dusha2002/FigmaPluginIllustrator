@@ -217,11 +217,7 @@ public class ImageProcessingService {
 
     private IIOMetadata createTiffMetadata(ImageWriter writer, BufferedImage image, int dpi) throws IOException {
         IIOMetadata metadata = writer.getDefaultImageMetadata(new ImageTypeSpecifier(image), writer.getDefaultWriteParam());
-        try {
-            setResolutionMetadata(metadata, dpi);
-        } catch (IIOInvalidTreeException e) {
-            throw new IOException("Не удалось создать TIFF metadata", e);
-        }
+        logger.info("DPI метаданные временно отключены для диагностики, dpi={}", dpi);
         return metadata;
     }
 
