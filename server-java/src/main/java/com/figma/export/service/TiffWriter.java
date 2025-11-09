@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageTypeSpecifier;
+import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.metadata.IIOMetadata;
 import javax.imageio.stream.ImageOutputStream;
@@ -46,9 +47,13 @@ public class TiffWriter {
                 logger.info("TIFF write start: size={}x{}, ppi={}", image.getWidth(), image.getHeight(), ppi);
             }
             writer.setOutput(ios);
-            IIOMetadata metadata = writer.getDefaultImageMetadata(new ImageTypeSpecifier(image), writer.getDefaultWriteParam());
+            ImageWriteParam writeParam = writer.getDefaultWriteParam();
+            if (writeParam.canWriteCompressed()) {
+                writeParam.setCompressionMode(ImageWriteParam.MODE_DISABLED);
+            }
+            IIOMetadata metadata = writer.getDefaultImageMetadata(new ImageTypeSpecifier(image), writeParam);
             resolutionMetadata.apply(metadata, ppi);
-            writer.write(null, new IIOImage(image, null, metadata), writer.getDefaultWriteParam());
+            writer.write(null, new IIOImage(image, null, metadata), writeParam);
             byte[] result = buffer.toByteArray();
             if (logger.isInfoEnabled()) {
                 long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
