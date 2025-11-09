@@ -289,9 +289,9 @@ public class ImageProcessingService {
         if (nativeFormat != null && nativeFormat.startsWith("com_twelvemonkeys_imageio_plugins_tiff")) {
             IIOMetadataNode nativeRoot = (IIOMetadataNode) metadata.getAsTree(nativeFormat);
             IIOMetadataNode ifd = getOrCreateTiffIfd(nativeRoot);
-            setOrReplaceTiffField(ifd, 282, "RATIONAL", createRationalNode(ppi, 1));
-            setOrReplaceTiffField(ifd, 283, "RATIONAL", createRationalNode(ppi, 1));
-            setOrReplaceTiffField(ifd, 296, "SHORT", createShortNode(2));
+            replaceTiffField(ifd, createRationalField(282, "XResolution", ppi, 1));
+            replaceTiffField(ifd, createRationalField(283, "YResolution", ppi, 1));
+            replaceTiffField(ifd, createShortField(296, "ResolutionUnit", 2));
             metadata.setFromTree(nativeFormat, nativeRoot);
         }
     }
@@ -318,39 +318,53 @@ public class ImageProcessingService {
         return ifd;
     }
 
-    private void setOrReplaceTiffField(IIOMetadataNode ifd, int tagNumber, String type, IIOMetadataNode valueNode) {
+    private void replaceTiffField(IIOMetadataNode ifd, IIOMetadataNode newField) {
+        String tagNumber = newField.getAttribute("number");
         for (int i = 0; i < ifd.getLength(); i++) {
             if (ifd.item(i) instanceof IIOMetadataNode node && "TIFFField".equals(node.getNodeName())) {
-                if (Integer.toString(tagNumber).equals(node.getAttribute("number"))) {
+                if (tagNumber.equals(node.getAttribute("number"))) {
                     ifd.removeChild(node);
                     break;
                 }
             }
         }
-        IIOMetadataNode field = new IIOMetadataNode("TIFFField");
-        field.setAttribute("number", Integer.toString(tagNumber));
-        field.setAttribute("type", type);
-        field.setAttribute("count", "1");
-        field.appendChild(valueNode);
-        ifd.appendChild(field);
+        ifd.appendChild(newField);
     }
 
-    private IIOMetadataNode createRationalNode(int numerator, int denominator) {
+    private IIOMetadataNode createRationalField(int tagNumber, String name, int numerator, int denominator) {
+        IIOMetadataNode field = new IIOMetadataNode("TIFFField");
+        field.setAttribute("number", Integer.toString(tagNumber));
+        field.setAttribute("name", name);
+        field.setAttribute("type", "RATIONAL");
+        field.setAttribute("count", "1");
+        field.setAttribute("value", numerator + "/" + denominator);
+
         IIOMetadataNode rationals = new IIOMetadataNode("TIFFRationals");
+        rationals.setAttribute("value", numerator + "/" + denominator);
         IIOMetadataNode rational = new IIOMetadataNode("TIFFRational");
         rational.setAttribute("value", numerator + "/" + denominator);
         rational.setAttribute("numerator", Integer.toString(numerator));
         rational.setAttribute("denominator", Integer.toString(denominator));
         rationals.appendChild(rational);
-        return rationals;
+        field.appendChild(rationals);
+        return field;
     }
 
-    private IIOMetadataNode createShortNode(int value) {
+    private IIOMetadataNode createShortField(int tagNumber, String name, int value) {
+        IIOMetadataNode field = new IIOMetadataNode("TIFFField");
+        field.setAttribute("number", Integer.toString(tagNumber));
+        field.setAttribute("name", name);
+        field.setAttribute("type", "SHORT");
+        field.setAttribute("count", "1");
+        field.setAttribute("value", Integer.toString(value));
+
         IIOMetadataNode shorts = new IIOMetadataNode("TIFFShorts");
+        shorts.setAttribute("value", Integer.toString(value));
         IIOMetadataNode shortNode = new IIOMetadataNode("TIFFShort");
         shortNode.setAttribute("value", Integer.toString(value));
         shorts.appendChild(shortNode);
-        return shorts;
+        field.appendChild(shorts);
+        return field;
     }
 
     private String selectCompressionType(String[] available, String requested) {
