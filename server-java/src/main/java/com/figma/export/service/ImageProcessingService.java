@@ -178,7 +178,7 @@ public class ImageProcessingService {
         return result;
     }
 
-    public byte[] writeTiff(BufferedImage cmykImage, String compression, int dpi) throws IOException {
+    public byte[] writeTiff(BufferedImage cmykImage, String compression, int ppi) throws IOException {
         long startNs = System.nanoTime();
         Iterator<ImageWriter> writers = ImageIO.getImageWriters(new ImageTypeSpecifier(cmykImage), "tiff");
         if (!writers.hasNext()) {
@@ -199,8 +199,8 @@ public class ImageProcessingService {
                     writeParam.setCompressionType(compressionType);
                 }
             }
-            IIOMetadata metadata = createTiffMetadata(writer, cmykImage, dpi);
-            logger.info("Запись TIFF начата: {}x{}, dpi={}, compression={}", cmykImage.getWidth(), cmykImage.getHeight(), dpi, compression);
+            IIOMetadata metadata = createTiffMetadata(writer, cmykImage, ppi);
+            logger.info("Запись TIFF начата: {}x{}, ppi={}, compression={}", cmykImage.getWidth(), cmykImage.getHeight(), ppi, compression);
             try {
                 writer.write(null, new IIOImage(cmykImage, null, metadata), writeParam);
             } catch (IOException ex) {
@@ -215,11 +215,11 @@ public class ImageProcessingService {
         return outputStream.toByteArray();
     }
 
-    private IIOMetadata createTiffMetadata(ImageWriter writer, BufferedImage image, int dpi) throws IOException {
+    private IIOMetadata createTiffMetadata(ImageWriter writer, BufferedImage image, int ppi) throws IOException {
         IIOMetadata metadata = writer.getDefaultImageMetadata(new ImageTypeSpecifier(image), writer.getDefaultWriteParam());
         try {
-            setResolutionMetadata(metadata, dpi);
-            logger.info("DPI метаданные применены: dpi={}", dpi);
+            setResolutionMetadata(metadata, ppi);
+            logger.info("PPI метаданные применены: ppi={}", ppi);
         } catch (IIOInvalidTreeException ex) {
             logger.warn("Не удалось применить DPI метаданные для TIFF", ex);
         }
@@ -258,7 +258,7 @@ public class ImageProcessingService {
             }
             IIOMetadata metadata = writer.getDefaultImageMetadata(new ImageTypeSpecifier(cmykImage), writeParam);
             try {
-                setResolutionMetadata(metadata, dpi);
+                setResolutionMetadata(metadata, ppi);
             } catch (IIOInvalidTreeException e) {
                 throw new IOException("Не удалось добавить DPI метаданные в JPEG", e);
             }
@@ -269,12 +269,12 @@ public class ImageProcessingService {
         return outputStream.toByteArray();
     }
 
-    private void setResolutionMetadata(IIOMetadata metadata, int dpi) throws IIOInvalidTreeException {
-        if (metadata == null || !metadata.isStandardMetadataFormatSupported() || dpi <= 0) {
+    private void setResolutionMetadata(IIOMetadata metadata, int ppi) throws IIOInvalidTreeException {
+        if (metadata == null || !metadata.isStandardMetadataFormatSupported() || ppi <= 0) {
             return;
         }
         double inchesPerMeter = 39.3700787;
-        double pixelsPerMeter = dpi * inchesPerMeter;
+        double pixelsPerMeter = ppi * inchesPerMeter;
         double pixelSize = 1000.0 / pixelsPerMeter;
 
         IIOMetadataNode root = (IIOMetadataNode) metadata.getAsTree("javax_imageio_1.0");
@@ -289,8 +289,8 @@ public class ImageProcessingService {
         if (nativeFormat != null && nativeFormat.startsWith("com_twelvemonkeys_imageio_plugins_tiff")) {
             IIOMetadataNode nativeRoot = (IIOMetadataNode) metadata.getAsTree(nativeFormat);
             IIOMetadataNode ifd = getOrCreateTiffIfd(nativeRoot);
-            setOrReplaceTiffField(ifd, 282, "RATIONAL", createRationalNode(dpi, 1));
-            setOrReplaceTiffField(ifd, 283, "RATIONAL", createRationalNode(dpi, 1));
+            setOrReplaceTiffField(ifd, 282, "RATIONAL", createRationalNode(ppi, 1));
+            setOrReplaceTiffField(ifd, 283, "RATIONAL", createRationalNode(ppi, 1));
             setOrReplaceTiffField(ifd, 296, "SHORT", createShortNode(2));
             metadata.setFromTree(nativeFormat, nativeRoot);
         }

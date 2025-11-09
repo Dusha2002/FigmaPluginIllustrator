@@ -48,7 +48,7 @@ Spring Boot сервис, выполняющий конвертацию файл
 | `pdfColorProfile` | строка  | `coated_fogra39`, `iso_coated_v2`, `us_web_coated_swop` |
 | `tiffCompression` | строка  | `none` или `lzw` |
 | `tiffAntialias`   | строка  | `none`, `fast`, `balanced`, `best` |
-| `tiffDpi`         | число   | DPI итогового TIFF |
+| `tiffPpi` (`tiffDpi`) | число | Плотность пикселей (PPI) для итогового TIFF |
 | `widthPx` / `heightPx` | число | Необязательное переопределение размера (px) |
 
 В ответ сервер возвращает бинарный PDF/TIFF с корректно выставленными заголовками.

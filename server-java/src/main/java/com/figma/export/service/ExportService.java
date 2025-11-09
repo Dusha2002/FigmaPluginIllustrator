@@ -118,11 +118,11 @@ public class ExportService {
 
     private ExportResponse convertToTiff(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
         long startNs = System.nanoTime();
-        int dpi = request.getTiffDpi() > 0 ? request.getTiffDpi() : Math.max(request.getDpi(), 72);
+        int ppi = request.getTiffPpi() > 0 ? request.getTiffPpi() : Math.max(request.getDpi(), 72);
         ColorProfile colorProfile = colorProfileManager.getProfileOrDefault(request.getPdfColorProfile());
         BufferedImage sourceImage = switch (uploadType) {
             case SVG -> rasterizeSvgForImage(data, request);
-            case PDF -> renderPdfPage(data, 0, dpi);
+            case PDF -> renderPdfPage(data, 0, ppi);
             case IMAGE -> readBufferedImage(data);
             default -> throw new ConversionException("Неподдерживаемый тип загруженного файла для экспорта в TIFF.");
         };
@@ -164,7 +164,7 @@ public class ExportService {
         flushIfDifferent(flattened, cmyk);
         flattened = null;
 
-        byte[] tiffBytes = imageProcessingService.writeTiff(cmyk, request.getTiffCompression(), dpi);
+        byte[] tiffBytes = imageProcessingService.writeTiff(cmyk, request.getTiffCompression(), ppi);
         flushIfDifferent(cmyk, null);
         cmyk = null;
 
@@ -175,7 +175,7 @@ public class ExportService {
                 baseName,
                 tiffBytes.length,
                 String.format(Locale.ROOT, "%.2f", bytesMb),
-                dpi,
+                ppi,
                 elapsedMs);
 
         ContentDisposition disposition = ContentDisposition.attachment()

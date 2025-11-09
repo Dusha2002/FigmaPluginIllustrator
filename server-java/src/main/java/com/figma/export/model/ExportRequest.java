@@ -1,5 +1,6 @@
 package com.figma.export.model;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -40,7 +41,8 @@ public class ExportRequest {
     private String tiffAntialias = "none";
 
     @Min(1)
-    private int tiffDpi;
+    @JsonAlias("tiffDpi")
+    private int tiffPpi;
 
     @Min(1)
     private Integer widthPx;
@@ -112,12 +114,16 @@ public class ExportRequest {
         this.tiffAntialias = tiffAntialias;
     }
 
-    public int getTiffDpi() {
-        return tiffDpi;
+    public int getTiffPpi() {
+        return tiffPpi;
+    }
+
+    public void setTiffPpi(int tiffPpi) {
+        this.tiffPpi = tiffPpi;
     }
 
     public void setTiffDpi(int tiffDpi) {
-        this.tiffDpi = tiffDpi;
+        this.tiffPpi = tiffDpi;
     }
 
     public Integer getWidthPx() {

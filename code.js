@@ -1,6 +1,6 @@
-const DEFAULT_DPI = 96;
-const MM_PER_PX = 25.4 / DEFAULT_DPI;
-const PX_PER_MM = DEFAULT_DPI / 25.4;
+const DEFAULT_PPI = 96;
+const MM_PER_PX = 25.4 / DEFAULT_PPI;
+const PX_PER_MM = DEFAULT_PPI / 25.4;
 const DEFAULT_SERVER_URL = 'https://figmapluginillustrator.up.railway.app';
 
 const UI_SIZE_PRESETS = {
@@ -401,10 +401,10 @@ async function handlePositionUpdate(positionMm) {
 
 async function exportSelection(settings) {
   const exportFormat = settings && typeof settings.format === 'string' ? settings.format : 'pdf';
-  const baseDpi = DEFAULT_DPI;
-  const requestedDpi = settings && typeof settings.dpi === 'number'
+  const basePpi = DEFAULT_PPI;
+  const requestedPpi = settings && typeof settings.dpi === 'number'
     ? Math.max(settings.dpi, 1)
-    : baseDpi;
+    : basePpi;
   const pdfStandard = exportFormat === 'pdf' && settings && typeof settings.pdfStandard === 'string'
     ? settings.pdfStandard
     : 'none';
@@ -420,12 +420,12 @@ async function exportSelection(settings) {
   const tiffAntialias = exportFormat === 'tiff' && settings && typeof settings.tiffAntialias === 'string'
     ? settings.tiffAntialias
     : 'none';
-  const tiffDpi = requestedDpi;
+  const tiffPpi = requestedPpi;
   const useServer = true;
   const serverUrl = settings && typeof settings.serverUrl === 'string' && settings.serverUrl.trim().length > 0
     ? settings.serverUrl
     : (typeof DEFAULT_SERVER_URL === 'undefined' ? '' : DEFAULT_SERVER_URL);
-  const scale = Math.max(requestedDpi / baseDpi, 0.01);
+  const scale = Math.max(requestedPpi / basePpi, 0.01);
   const selection = figma.currentPage.selection;
   if (selection.length === 0) {
     throw new Error('Нет выделенных объектов для экспорта.');
@@ -465,17 +465,17 @@ async function exportSelection(settings) {
   if (exported.length === 0) {
     throw new Error('Не удалось экспортировать выделенные объекты.');
   }
-  const effectiveDpi = requestedDpi;
+  const effectivePpi = requestedPpi;
   return {
     items: exported,
     format: exportFormat,
-    dpi: effectiveDpi,
+    dpi: effectivePpi,
     pdfStandard,
     pdfVersion,
     pdfColorProfile,
     tiffCompression,
     tiffAntialias,
-    tiffDpi: tiffDpi,
+    tiffPpi,
     useServer: true,
     serverUrl
   };
@@ -520,7 +520,7 @@ figma.ui.onmessage = async (message) => {
           pdfColorProfile: result.pdfColorProfile,
           tiffCompression: result.tiffCompression,
           tiffAntialias: result.tiffAntialias,
-          tiffDpi: result.tiffDpi,
+          tiffPpi: result.tiffPpi,
           useServer: result.useServer,
           serverUrl: result.serverUrl
         });

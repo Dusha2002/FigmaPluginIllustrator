@@ -1093,9 +1093,9 @@
       return new Blob([result], { type: 'application/pdf' });
     }
 
-    function buildTIFF({ widthPx, heightPx, cmykData, dpi, tiffCompression, tiffDpi }) {
+    function buildTIFF({ widthPx, heightPx, cmykData, dpi, tiffCompression, tiffPpi }) {
       const compression = tiffCompression || tiffCompressionSelect.value || 'none';
-      const targetDpi = Math.max(dpi || tiffDpi || parseInt(tiffDpiInput.value, 10) || 300, 1);
+      const targetPpi = Math.max(dpi || tiffPpi || parseInt(tiffPpiInput.value, 10) || 300, 1);
       const littleEndian = true;
 
       let imageBytes = cmykData;
@@ -1133,8 +1133,8 @@
       addEntry(277, 3, 1, u16(4));
       addEntry(278, 4, 1, u32(heightPx));
       addEntry(279, 4, 1, u32(imageBytes.length));
-      addEntry(282, 5, 1, null, createRational(targetDpi));
-      addEntry(283, 5, 1, null, createRational(targetDpi));
+      addEntry(282, 5, 1, null, createRational(targetPpi, 1));
+      addEntry(283, 5, 1, null, createRational(targetPpi, 1));
       addEntry(284, 3, 1, u16(1));
       addEntry(296, 3, 1, u16(2));
       addEntry(305, 2, 'Cascade CMYK Tools'.length + 1, encoder.encode('Cascade CMYK Tools\0'));
@@ -1226,7 +1226,7 @@
         pdfColorProfile,
         tiffCompression,
         tiffAntialias,
-        tiffDpi,
+        tiffPpi,
         serverUrl
       } = options;
       let endpoint;
@@ -1253,7 +1253,8 @@
       formData.append('pdfColorProfile', pdfColorProfile || 'coated_fogra39');
       formData.append('tiffCompression', tiffCompression || 'none');
       formData.append('tiffAntialias', tiffAntialias || 'none');
-      formData.append('tiffDpi', tiffDpi || 300);
+      formData.append('tiffPpi', tiffPpi || 300);
+      formData.append('tiffDpi', tiffPpi || 300); // совместимость с сервером
       formData.append('widthPx', item.widthPx || '');
       formData.append('heightPx', item.heightPx || '');
       formData.append('image', uploadBlob, `${item.name || 'export'}.${extension}`);
@@ -1287,7 +1288,7 @@
         pdfVersion,
         tiffCompression,
         tiffAntialias,
-        tiffDpi,
+        tiffPpi,
         useServer,
         serverUrl
       } = message;
@@ -1306,7 +1307,7 @@
             pdfStandard,
             tiffCompression,
             tiffAntialias,
-            tiffDpi,
+            tiffPpi,
             serverUrl
           });
           const extension = format === 'pdf' ? 'pdf' : 'tiff';
@@ -1654,20 +1655,21 @@
       showExportOverlay();
       const exportFormat = formatSelect.value;
       const payload = { format: exportFormat };
-      const baseDpi = 96;
+      const basePpi = 96;
       payload.serverUrl = DEFAULT_SERVER_URL;
       payload.useServer = true;
       if (exportFormat === 'pdf') {
         payload.pdfVersion = pdfVersionSelect.value;
         payload.pdfStandard = pdfStandardSelect.value;
         payload.pdfColorProfile = pdfColorProfileSelect ? pdfColorProfileSelect.value : 'coated_fogra39';
-        payload.dpi = baseDpi;
+        payload.dpi = basePpi;
       } else {
         const ppiValue = parseInt(tiffPpiInput.value, 10);
-        const tiffPpi = Math.max(Number.isFinite(ppiValue) ? ppiValue : baseDpi, 1);
+        const tiffPpi = Math.max(Number.isFinite(ppiValue) ? ppiValue : basePpi, 1);
         payload.tiffCompression = tiffCompressionSelect.value;
         payload.tiffAntialias = tiffAntialiasSelect.value;
-        payload.tiffDpi = tiffPpi;
+        payload.tiffPpi = tiffPpi;
+        payload.tiffDpi = tiffPpi; // для обратной совместимости сервера
         payload.dpi = tiffPpi;
         payload.pdfColorProfile = pdfColorProfileSelect ? pdfColorProfileSelect.value : 'coated_fogra39';
       }
