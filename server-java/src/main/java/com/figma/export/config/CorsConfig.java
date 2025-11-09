@@ -11,11 +11,17 @@ import java.util.List;
 @Configuration
 public class CorsConfig {
 
+    private static final List<String> ALLOWED_ORIGINS = List.of(
+            "null",
+            "https://www.figma.com"
+    );
+
     private static final List<String> ALLOWED_ORIGIN_PATTERNS = List.of("*");
 
     @Bean
     public CorsFilter corsFilter() {
         CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(ALLOWED_ORIGINS);
         configuration.setAllowedOriginPatterns(ALLOWED_ORIGIN_PATTERNS);
         configuration.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
