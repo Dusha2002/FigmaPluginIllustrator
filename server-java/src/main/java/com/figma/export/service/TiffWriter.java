@@ -35,16 +35,16 @@ public class TiffWriter {
         if (image == null) {
             throw new IllegalArgumentException("image must not be null");
         }
-        Iterator<ImageWriter> writers = ImageIO.getImageWriters(new ImageTypeSpecifier(image), "tiff");
-        if (!writers.hasNext()) {
+        ImageTypeSpecifier typeSpecifier = new ImageTypeSpecifier(image);
+        ImageWriter writer = selectWriter(typeSpecifier);
+        if (writer == null) {
             throw new IOException("TIFF writer not found");
         }
-        ImageWriter writer = writers.next();
         long startNs = System.nanoTime();
         try (ByteArrayOutputStream buffer = new ByteArrayOutputStream();
              ImageOutputStream ios = ImageIO.createImageOutputStream(buffer)) {
             if (logger.isInfoEnabled()) {
-                logger.info("TIFF write start: size={}x{}, ppi={}", image.getWidth(), image.getHeight(), ppi);
+                logger.info("TIFF write start: size={}x{}, ppi={}, writer={}", image.getWidth(), image.getHeight(), ppi, writer.getClass().getName());
             }
             writer.setOutput(ios);
             ImageWriteParam writeParam = writer.getDefaultWriteParam();
@@ -63,5 +63,26 @@ public class TiffWriter {
         } finally {
             writer.dispose();
         }
+    }
+
+    private ImageWriter selectWriter(ImageTypeSpecifier typeSpecifier) {
+        ImageWriter preferred = null;
+        ImageWriter fallback = null;
+        Iterator<ImageWriter> writers = ImageIO.getImageWriters(typeSpecifier, "tiff");
+        while (writers.hasNext()) {
+            ImageWriter candidate = writers.next();
+            String className = candidate.getClass().getName();
+            if (className.startsWith("com.twelvemonkeys.imageio.plugins.tiff")) {
+                preferred = candidate;
+                break;
+            }
+            if (fallback == null) {
+                fallback = candidate;
+            }
+        }
+        if (preferred != null) {
+            return preferred;
+        }
+        return fallback;
     }
 }

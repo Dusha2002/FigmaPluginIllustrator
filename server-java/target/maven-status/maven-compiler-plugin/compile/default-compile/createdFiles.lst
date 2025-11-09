@@ -20,6 +20,7 @@ com\figma\export\service\ExportService$PdfDocumentResult.class
 com\figma\export\exception\ConversionException.class
 com\figma\export\service\ExportService$1.class
 com\figma\export\ExportServerApplication.class
+com\figma\export\config\CorsConfig.class
 com\figma\export\color\ColorProfileManager.class
 com\figma\export\service\ImageInputLoader.class
 com\figma\export\svg\SvgRenderer$BufferedImageTranscoder.class

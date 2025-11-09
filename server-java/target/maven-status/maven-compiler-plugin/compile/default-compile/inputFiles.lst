@@ -1,5 +1,6 @@
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\color\ColorProfile.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\color\ColorProfileManager.java
+C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\config\CorsConfig.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\controller\ExportController.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\exception\ConversionException.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\exception\ErrorResponse.java

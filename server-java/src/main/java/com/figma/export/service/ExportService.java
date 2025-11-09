@@ -82,12 +82,12 @@ public class ExportService {
 
         try {
             byte[] data = file.getBytes();
-            UploadType uploadType = detectUploadType(file);
+            UploadType uploadType = detectUploadType(file, format);
 
             return switch (format) {
                 case FORMAT_PDF -> convertToPdf(data, uploadType, request, baseName);
                 case FORMAT_TIFF -> convertToTiff(data, uploadType, request, baseName);
-                default -> throw new ConversionException("Формат \"" + format + "\" пока не поддерживается.");
+                default -> throw new ConversionException("Неподдерживаемый формат экспорта: " + request.getFormat());
             };
         } catch (ConversionException ex) {
             throw ex;
@@ -127,12 +127,10 @@ public class ExportService {
         long startNs = System.nanoTime();
         int ppi = Math.max(request.getDpi(), DEFAULT_DPI);
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
-        BufferedImage sourceImage = switch (uploadType) {
-            case SVG -> rasterizeSvgForImage(data, request);
-            case PDF -> renderPdfPage(data, 0, ppi);
-            case IMAGE -> readBufferedImage(data);
-            default -> throw new ConversionException("Неподдерживаемый тип загруженного файла для экспорта в TIFF.");
-        };
+        if (uploadType != UploadType.IMAGE) {
+            throw new ConversionException("Для экспорта TIFF принимаются только PNG-изображения.");
+        }
+        BufferedImage sourceImage = readBufferedImage(data);
 
         logTiffStage("source", baseName, sourceImage);
 
@@ -189,51 +187,48 @@ public class ExportService {
     private PdfDocumentResult createSourcePdfDocument(byte[] data, UploadType uploadType, ExportRequest request, int dpi, ColorProfile colorProfile) throws IOException {
         return switch (uploadType) {
             case SVG -> createPdfFromSvg(data, request, colorProfile);
-            case PDF -> new PdfDocumentResult(loadPdf(data), true);
             case IMAGE -> new PdfDocumentResult(createPdfFromImage(data, request), false);
+            case PDF -> new PdfDocumentResult(loadPdfDocument(data), true);
             default -> throw new ConversionException("Неподдерживаемый тип загруженного файла для экспорта в PDF.");
         };
     }
 
     private PdfDocumentResult createPdfFromSvg(byte[] data, ExportRequest request, ColorProfile colorProfile) throws IOException {
-        try {
-            PDDocument document = renderSvgAsVector(data, request, colorProfile);
-            return new PdfDocumentResult(document, true);
-        } catch (RuntimeException ex) {
-            logger.warn("Не удалось отрендерить SVG векторно, выполняется fallback в растр.", ex);
-            PDDocument document = renderSvgAsRasterPdf(data, request);
-            return new PdfDocumentResult(document, false);
-        }
-    }
-
-    private PDDocument renderSvgAsVector(byte[] data, ExportRequest request, ColorProfile colorProfile) throws IOException {
         PDDocument document = new PDDocument();
-        boolean success = false;
         try {
-            float widthPt = pxToPoints(request.getWidthPx());
-            float heightPt = pxToPoints(request.getHeightPx());
-            SvgRenderResult renderResult = svgRenderer.renderSvg(data, document, widthPt, heightPt, new CmykPdfColorMapper(colorProfile.getColorSpace()));
-            if (renderResult.widthPt() > 0 && renderResult.heightPt() > 0) {
-                PDPage page = renderResult.page();
-                page.setMediaBox(new PDRectangle(renderResult.widthPt(), renderResult.heightPt()));
+            int targetWidthPx = positiveOrDefault(request.getWidthPx(), 0);
+            int targetHeightPx = positiveOrDefault(request.getHeightPx(), 0);
+            float targetWidthPt = targetWidthPx > 0 ? pxToPoints(targetWidthPx) : 0f;
+            float targetHeightPt = targetHeightPx > 0 ? pxToPoints(targetHeightPx) : 0f;
+            CmykPdfColorMapper colorMapper = colorProfile != null
+                    ? new CmykPdfColorMapper(colorProfile.getColorSpace())
+                    : null;
+            if (colorMapper != null) {
+                svgRenderer.renderSvg(data, document, targetWidthPt, targetHeightPt, colorMapper);
+            } else {
+                svgRenderer.renderSvg(data, document, targetWidthPt, targetHeightPt);
             }
-            success = true;
-            return document;
-        } finally {
-            if (!success) {
-                document.close();
+            return new PdfDocumentResult(document, true);
+        } catch (IOException | RuntimeException ex) {
+            document.close();
+            if (ex instanceof IOException io) {
+                throw io;
             }
+            throw ex;
         }
-    }
-
-    private PDDocument renderSvgAsRasterPdf(byte[] data, ExportRequest request) throws IOException {
-        BufferedImage image = rasterizeSvgForImage(data, request);
-        return createPdfFromBufferedImage(image, request);
     }
 
     private PDDocument createPdfFromImage(byte[] data, ExportRequest request) throws IOException {
         BufferedImage image = readBufferedImage(data);
         return createPdfFromBufferedImage(image, request);
+    }
+
+    private PDDocument loadPdfDocument(byte[] data) throws IOException {
+        try {
+            return Loader.loadPDF(data);
+        } catch (IOException ex) {
+            throw new ConversionException("Не удалось прочитать PDF-документ.", ex);
+        }
     }
 
     private PDDocument createPdfFromBufferedImage(BufferedImage image, ExportRequest request) throws IOException {
@@ -283,39 +278,11 @@ public class ExportService {
         return result;
     }
 
-    private BufferedImage renderPdfPage(byte[] data, int pageIndex, int dpi) throws IOException {
-        try (PDDocument document = loadPdf(data)) {
-            PDFRenderer renderer = new PDFRenderer(document);
-            return renderer.renderImageWithDPI(pageIndex, dpi, ImageType.ARGB);
-        }
-    }
-
-    private BufferedImage rasterizeSvgForImage(byte[] data, ExportRequest request) throws IOException {
-        float widthPx = request.getWidthPx() != null ? request.getWidthPx() : 0;
-        float heightPx = request.getHeightPx() != null ? request.getHeightPx() : 0;
-        var rasterResult = svgRenderer.rasterize(data, widthPx, heightPx);
-        BufferedImage image = rasterResult.image();
-        if (image != null) {
-            return image;
-        }
-        int derivedWidth = Math.max(1, Math.round(rasterResult.widthPx()));
-        int derivedHeight = Math.max(1, Math.round(rasterResult.heightPx()));
-        return new BufferedImage(derivedWidth, derivedHeight, BufferedImage.TYPE_INT_ARGB);
-    }
-
     private BufferedImage readBufferedImage(byte[] data) throws IOException {
         try {
             return imageInputLoader.read(data);
         } catch (IOException ex) {
             throw new ConversionException("Не удалось прочитать растровое изображение.", ex);
-        }
-    }
-
-    private PDDocument loadPdf(byte[] data) throws IOException {
-        try {
-            return Loader.loadPDF(data);
-        } catch (IOException ex) {
-            throw new ConversionException("Не удалось прочитать PDF-файл.", ex);
         }
     }
 
@@ -352,6 +319,25 @@ public class ExportService {
             document.save(output);
             return output.toByteArray();
         }
+    }
+
+    private UploadType detectUploadType(MultipartFile file, String format) {
+        UploadType uploadType = detectUploadType(file);
+        if (FORMAT_TIFF.equals(format)) {
+            if (uploadType != UploadType.IMAGE || !isPng(file)) {
+                throw new ConversionException("Для экспорта TIFF необходимо прикладывать PNG-файл.");
+            }
+        }
+        return uploadType;
+    }
+
+    private boolean isPng(MultipartFile file) {
+        String contentType = normalize(file.getContentType());
+        if (contentType != null && contentType.contains("png")) {
+            return true;
+        }
+        String originalName = file.getOriginalFilename();
+        return originalName != null && originalName.toLowerCase(Locale.ROOT).endsWith(".png");
     }
 
     private UploadType detectUploadType(MultipartFile file) {
