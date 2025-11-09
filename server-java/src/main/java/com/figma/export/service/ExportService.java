@@ -157,7 +157,12 @@ public class ExportService {
         long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
         double bytesMb = tiffBytes.length / (1024d * 1024d);
         logMemoryUsage("tiff-bytes", baseName, tiffBytes.length, null);
-        logger.info("TIFF экспорт завершён: name={}, размер={} байт ({:.2f} МБ), dpi={}, время={} мс", baseName, tiffBytes.length, bytesMb, dpi, elapsedMs);
+        logger.info("TIFF экспорт завершён: name={}, размер={} байт ({}) МБ, dpi={}, время={} мс",
+                baseName,
+                tiffBytes.length,
+                String.format(Locale.ROOT, "%.2f", bytesMb),
+                dpi,
+                elapsedMs);
 
         ContentDisposition disposition = ContentDisposition.attachment()
                 .filename(baseName + ".tiff", StandardCharsets.UTF_8)
@@ -431,11 +436,12 @@ public class ExportService {
         Runtime runtime = Runtime.getRuntime();
         long usedBytes = runtime.totalMemory() - runtime.freeMemory();
         double usedMb = usedBytes / (1024d * 1024d);
+        String usedMbFormatted = String.format(Locale.ROOT, "%.2f", usedMb);
         if (image != null) {
-            logger.info("TIFF стадия {}: name={}, размер={}x{}, пикселей={}, память={:.2f} МБ",
-                    stage, baseName, image.getWidth(), image.getHeight(), image.getWidth() * (long) image.getHeight(), usedMb);
+            logger.info("TIFF стадия {}: name={}, размер={}x{}, пикселей={}, память={} МБ",
+                    stage, baseName, image.getWidth(), image.getHeight(), image.getWidth() * (long) image.getHeight(), usedMbFormatted);
         } else {
-            logger.info("TIFF стадия {}: name={}, payload={}, память={:.2f} МБ", stage, baseName, payloadSize, usedMb);
+            logger.info("TIFF стадия {}: name={}, payload={}, память={} МБ", stage, baseName, payloadSize, usedMbFormatted);
         }
     }
 
