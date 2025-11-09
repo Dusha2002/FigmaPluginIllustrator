@@ -212,6 +212,7 @@ public class ImageProcessingService {
             long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
             logger.info("Запись TIFF завершена за {} мс, размер вывода={} байт", elapsedMs, outputStream.size());
         }
+        logWrittenTiffMetadata(outputStream.toByteArray(), ppi);
         return outputStream.toByteArray();
     }
 
@@ -340,7 +341,6 @@ public class ImageProcessingService {
         field.setAttribute("value", numerator + "/" + denominator);
 
         IIOMetadataNode rationals = new IIOMetadataNode("TIFFRationals");
-        rationals.setAttribute("value", numerator + "/" + denominator);
         IIOMetadataNode rational = new IIOMetadataNode("TIFFRational");
         rational.setAttribute("value", numerator + "/" + denominator);
         rational.setAttribute("numerator", Integer.toString(numerator));
@@ -359,12 +359,135 @@ public class ImageProcessingService {
         field.setAttribute("value", Integer.toString(value));
 
         IIOMetadataNode shorts = new IIOMetadataNode("TIFFShorts");
-        shorts.setAttribute("value", Integer.toString(value));
         IIOMetadataNode shortNode = new IIOMetadataNode("TIFFShort");
         shortNode.setAttribute("value", Integer.toString(value));
         shorts.appendChild(shortNode);
         field.appendChild(shorts);
         return field;
+    }
+
+    private void logWrittenTiffMetadata(byte[] data, int expectedPpi) {
+        if (!logger.isInfoEnabled()) {
+            return;
+        }
+        try (ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(data))) {
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
+            if (!readers.hasNext()) {
+                logger.warn("Не удалось прочитать метаданные TIFF для диагностики");
+                return;
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(iis, true, true);
+                IIOMetadata metadata = reader.getImageMetadata(0);
+                double[] ppiValues = extractPpiFromMetadata(metadata);
+                logger.info("Диагностика TIFF PPI: expected={}, standard={}dpi, native={}dpi, unit={} (1=NONE,2=INCH,3=CM)",
+                        expectedPpi,
+                        ppiValues[0],
+                        ppiValues[1],
+                        (int) ppiValues[2]);
+            } finally {
+                reader.dispose();
+            }
+        } catch (IOException e) {
+            logger.warn("Не удалось прочитать выписанный TIFF для проверки PPI", e);
+        }
+    }
+
+    private double[] extractPpiFromMetadata(IIOMetadata metadata) {
+        double standardPpi = Double.NaN;
+        double nativePpi = Double.NaN;
+        int resolutionUnit = -1;
+
+        try {
+            IIOMetadataNode root = (IIOMetadataNode) metadata.getAsTree("javax_imageio_1.0");
+            IIOMetadataNode dimension = getChildNode(root, "Dimension");
+            IIOMetadataNode horizontal = getChildNode(dimension, "HorizontalPixelSize");
+            if (horizontal != null) {
+                double pixelSizeMm = Double.parseDouble(horizontal.getAttribute("value"));
+                if (pixelSizeMm > 0) {
+                    standardPpi = 25.4 / pixelSizeMm;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        try {
+            String nativeFormat = metadata.getNativeMetadataFormatName();
+            if (nativeFormat != null) {
+                IIOMetadataNode nativeRoot = (IIOMetadataNode) metadata.getAsTree(nativeFormat);
+                IIOMetadataNode ifd = getChildNode(nativeRoot, "TIFFIFD");
+                if (ifd != null) {
+                    IIOMetadataNode xField = getTiffField(ifd, 282);
+                    if (xField != null) {
+                        nativePpi = parseRationalField(xField);
+                    }
+                    IIOMetadataNode unitField = getTiffField(ifd, 296);
+                    if (unitField != null) {
+                        resolutionUnit = parseShortField(unitField);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        return new double[]{standardPpi, nativePpi, resolutionUnit};
+    }
+
+    private IIOMetadataNode getChildNode(IIOMetadataNode parent, String name) {
+        if (parent == null) {
+            return null;
+        }
+        for (int i = 0; i < parent.getLength(); i++) {
+            if (parent.item(i) instanceof IIOMetadataNode node && name.equals(node.getNodeName())) {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    private IIOMetadataNode getTiffField(IIOMetadataNode ifd, int tagNumber) {
+        String target = Integer.toString(tagNumber);
+        for (int i = 0; i < ifd.getLength(); i++) {
+            if (ifd.item(i) instanceof IIOMetadataNode field && "TIFFField".equals(field.getNodeName())) {
+                if (target.equals(field.getAttribute("number"))) {
+                    return field;
+                }
+            }
+        }
+        return null;
+    }
+
+    private double parseRationalField(IIOMetadataNode field) {
+        IIOMetadataNode rationals = getChildNode(field, "TIFFRationals");
+        if (rationals != null) {
+            for (int i = 0; i < rationals.getLength(); i++) {
+                if (rationals.item(i) instanceof IIOMetadataNode rational && "TIFFRational".equals(rational.getNodeName())) {
+                    double numerator = Double.parseDouble(rational.getAttribute("numerator"));
+                    double denominator = Double.parseDouble(rational.getAttribute("denominator"));
+                    if (denominator != 0) {
+                        return numerator / denominator;
+                    }
+                }
+            }
+        }
+        return Double.NaN;
+    }
+
+    private int parseShortField(IIOMetadataNode field) {
+        IIOMetadataNode shorts = getChildNode(field, "TIFFShorts");
+        if (shorts != null) {
+            for (int i = 0; i < shorts.getLength(); i++) {
+                if (shorts.item(i) instanceof IIOMetadataNode shortNode && "TIFFShort".equals(shortNode.getNodeName())) {
+                    return Integer.parseInt(shortNode.getAttribute("value"));
+                }
+            }
+        }
+        String valueAttr = field.getAttribute("value");
+        if (!valueAttr.isEmpty()) {
+            return Integer.parseInt(valueAttr);
+        }
+        return -1;
     }
 
     private String selectCompressionType(String[] available, String requested) {
