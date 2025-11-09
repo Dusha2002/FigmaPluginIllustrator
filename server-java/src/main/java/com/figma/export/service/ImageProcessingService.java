@@ -15,6 +15,10 @@ import javax.imageio.ImageWriter;
 import javax.imageio.metadata.IIOInvalidTreeException;
 import javax.imageio.metadata.IIOMetadata;
 import javax.imageio.metadata.IIOMetadataNode;
+import javax.imageio.plugins.tiff.BaselineTIFFTagSet;
+import javax.imageio.plugins.tiff.TIFFField;
+import javax.imageio.plugins.tiff.TIFFImageMetadata;
+import javax.imageio.plugins.tiff.TIFFTag;
 import javax.imageio.stream.ImageInputStream;
 import javax.imageio.stream.ImageOutputStream;
 import java.awt.*;
@@ -290,13 +294,29 @@ public class ImageProcessingService {
 
         String nativeFormat = metadata.getNativeMetadataFormatName();
         if (nativeFormat != null && nativeFormat.startsWith("com_twelvemonkeys_imageio_plugins_tiff")) {
-            IIOMetadataNode nativeRoot = (IIOMetadataNode) metadata.getAsTree(nativeFormat);
-            IIOMetadataNode ifd = getOrCreateTiffIfd(nativeRoot);
-            replaceTiffField(ifd, createRationalField(282, "XResolution", ppi, 1));
-            replaceTiffField(ifd, createRationalField(283, "YResolution", ppi, 1));
-            replaceTiffField(ifd, createShortField(296, "ResolutionUnit", 2));
-            metadata.setFromTree(nativeFormat, nativeRoot);
+            setNativeTiffResolution(metadata, ppi);
         }
+    }
+
+    private void setNativeTiffResolution(IIOMetadata metadata, int ppi) {
+        if (!(metadata instanceof TIFFImageMetadata tiffMetadata)) {
+            return;
+        }
+
+        BaselineTIFFTagSet baseline = BaselineTIFFTagSet.getInstance();
+        long[][] resolutionValue = {{ppi, 1}};
+        TIFFTag xTag = baseline.getTag(BaselineTIFFTagSet.TAG_X_RESOLUTION);
+        TIFFTag yTag = baseline.getTag(BaselineTIFFTagSet.TAG_Y_RESOLUTION);
+        TIFFTag unitTag = baseline.getTag(BaselineTIFFTagSet.TAG_RESOLUTION_UNIT);
+
+        tiffMetadata.removeTIFFField(BaselineTIFFTagSet.TAG_X_RESOLUTION);
+        tiffMetadata.removeTIFFField(BaselineTIFFTagSet.TAG_Y_RESOLUTION);
+        tiffMetadata.removeTIFFField(BaselineTIFFTagSet.TAG_RESOLUTION_UNIT);
+
+        tiffMetadata.addTIFFField(new TIFFField(xTag, TIFFTag.TIFF_RATIONAL, 1, resolutionValue));
+        tiffMetadata.addTIFFField(new TIFFField(yTag, TIFFTag.TIFF_RATIONAL, 1, resolutionValue));
+        char[] unitValue = {(char) 2};
+        tiffMetadata.addTIFFField(new TIFFField(unitTag, TIFFTag.TIFF_SHORT, 1, unitValue));
     }
 
     private IIOMetadataNode getOrCreateNode(IIOMetadataNode parent, String name) {
@@ -308,64 +328,6 @@ public class ImageProcessingService {
         IIOMetadataNode node = new IIOMetadataNode(name);
         parent.appendChild(node);
         return node;
-    }
-
-    private IIOMetadataNode getOrCreateTiffIfd(IIOMetadataNode root) {
-        for (int i = 0; i < root.getLength(); i++) {
-            if (root.item(i) instanceof IIOMetadataNode node && "TIFFIFD".equals(node.getNodeName())) {
-                return node;
-            }
-        }
-        IIOMetadataNode ifd = new IIOMetadataNode("TIFFIFD");
-        root.appendChild(ifd);
-        return ifd;
-    }
-
-    private void replaceTiffField(IIOMetadataNode ifd, IIOMetadataNode newField) {
-        String tagNumber = newField.getAttribute("number");
-        for (int i = 0; i < ifd.getLength(); i++) {
-            if (ifd.item(i) instanceof IIOMetadataNode node && "TIFFField".equals(node.getNodeName())) {
-                if (tagNumber.equals(node.getAttribute("number"))) {
-                    ifd.removeChild(node);
-                    break;
-                }
-            }
-        }
-        ifd.appendChild(newField);
-    }
-
-    private IIOMetadataNode createRationalField(int tagNumber, String name, int numerator, int denominator) {
-        IIOMetadataNode field = new IIOMetadataNode("TIFFField");
-        field.setAttribute("number", Integer.toString(tagNumber));
-        field.setAttribute("name", name);
-        field.setAttribute("type", "RATIONAL");
-        field.setAttribute("count", "1");
-        field.setAttribute("value", numerator + "/" + denominator);
-
-        IIOMetadataNode rationals = new IIOMetadataNode("TIFFRationals");
-        IIOMetadataNode rational = new IIOMetadataNode("TIFFRational");
-        rational.setAttribute("value", numerator + "/" + denominator);
-        rational.setAttribute("numerator", Integer.toString(numerator));
-        rational.setAttribute("denominator", Integer.toString(denominator));
-        rationals.appendChild(rational);
-        field.appendChild(rationals);
-        return field;
-    }
-
-    private IIOMetadataNode createShortField(int tagNumber, String name, int value) {
-        IIOMetadataNode field = new IIOMetadataNode("TIFFField");
-        field.setAttribute("number", Integer.toString(tagNumber));
-        field.setAttribute("name", name);
-        field.setAttribute("type", "SHORT");
-        field.setAttribute("count", "1");
-        field.setAttribute("value", Integer.toString(value));
-
-        IIOMetadataNode shorts = new IIOMetadataNode("TIFFShorts");
-        IIOMetadataNode shortNode = new IIOMetadataNode("TIFFShort");
-        shortNode.setAttribute("value", Integer.toString(value));
-        shorts.appendChild(shortNode);
-        field.appendChild(shorts);
-        return field;
     }
 
     private void logWrittenTiffMetadata(byte[] data, int expectedPpi) {
@@ -415,19 +377,14 @@ public class ImageProcessingService {
         }
 
         try {
-            String nativeFormat = metadata.getNativeMetadataFormatName();
-            if (nativeFormat != null) {
-                IIOMetadataNode nativeRoot = (IIOMetadataNode) metadata.getAsTree(nativeFormat);
-                IIOMetadataNode ifd = getChildNode(nativeRoot, "TIFFIFD");
-                if (ifd != null) {
-                    IIOMetadataNode xField = getTiffField(ifd, 282);
-                    if (xField != null) {
-                        nativePpi = parseRationalField(xField);
-                    }
-                    IIOMetadataNode unitField = getTiffField(ifd, 296);
-                    if (unitField != null) {
-                        resolutionUnit = parseShortField(unitField);
-                    }
+            if (metadata instanceof TIFFImageMetadata tiffMetadata) {
+                TIFFField xField = tiffMetadata.getTIFFField(BaselineTIFFTagSet.TAG_X_RESOLUTION);
+                if (xField != null && xField.getCount() > 0) {
+                    nativePpi = xField.getAsDouble(0);
+                }
+                TIFFField unitField = tiffMetadata.getTIFFField(BaselineTIFFTagSet.TAG_RESOLUTION_UNIT);
+                if (unitField != null && unitField.getCount() > 0) {
+                    resolutionUnit = unitField.getAsInt(0);
                 }
             }
         } catch (Exception ignored) {
@@ -504,5 +461,26 @@ public class ImageProcessingService {
         }
         // Вернуть первую доступную, если совпадения нет, чтобы не провалить запись.
         return available[0];
+    }
+
+    private void setNativeTiffResolution(IIOMetadata metadata, int ppi) {
+        if (!(metadata instanceof TIFFImageMetadata tiffMetadata)) {
+            return;
+        }
+
+        BaselineTIFFTagSet baseline = BaselineTIFFTagSet.getInstance();
+        long[][] resolutionValue = {{ppi, 1}};
+        TIFFTag xTag = baseline.getTag(BaselineTIFFTagSet.TAG_X_RESOLUTION);
+        TIFFTag yTag = baseline.getTag(BaselineTIFFTagSet.TAG_Y_RESOLUTION);
+        TIFFTag unitTag = baseline.getTag(BaselineTIFFTagSet.TAG_RESOLUTION_UNIT);
+
+        tiffMetadata.removeTIFFField(BaselineTIFFTagSet.TAG_X_RESOLUTION);
+        tiffMetadata.removeTIFFField(BaselineTIFFTagSet.TAG_Y_RESOLUTION);
+        tiffMetadata.removeTIFFField(BaselineTIFFTagSet.TAG_RESOLUTION_UNIT);
+
+        tiffMetadata.addTIFFField(new TIFFField(xTag, TIFFTag.TIFF_RATIONAL, 1, resolutionValue));
+        tiffMetadata.addTIFFField(new TIFFField(yTag, TIFFTag.TIFF_RATIONAL, 1, resolutionValue));
+        char[] unitValue = {(char) 2};
+        tiffMetadata.addTIFFField(new TIFFField(unitTag, TIFFTag.TIFF_SHORT, 1, unitValue));
     }
 }
