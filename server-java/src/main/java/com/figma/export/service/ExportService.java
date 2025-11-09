@@ -146,13 +146,27 @@ public class ExportService {
 
         BufferedImage argb = imageProcessingService.ensureArgb(sourceImage);
         logTiffStage("argb", baseName, argb);
-        argb = imageProcessingService.applyAntialias(argb, request.getTiffAntialias());
-        logTiffStage("antialias", baseName, argb);
-        BufferedImage flattened = imageProcessingService.flattenTransparency(argb, Color.WHITE);
+        flushIfDifferent(sourceImage, argb);
+        sourceImage = null;
+
+        BufferedImage antialiased = imageProcessingService.applyAntialias(argb, request.getTiffAntialias());
+        logTiffStage("antialias", baseName, antialiased);
+        flushIfDifferent(argb, antialiased);
+        argb = null;
+
+        BufferedImage flattened = imageProcessingService.flattenTransparency(antialiased, Color.WHITE);
         logTiffStage("flattened", baseName, flattened);
+        flushIfDifferent(antialiased, flattened);
+        antialiased = null;
+
         BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, colorProfile);
         logTiffStage("cmyk", baseName, cmyk);
+        flushIfDifferent(flattened, cmyk);
+        flattened = null;
+
         byte[] tiffBytes = imageProcessingService.writeTiff(cmyk, request.getTiffCompression(), dpi);
+        flushIfDifferent(cmyk, null);
+        cmyk = null;
 
         long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
         double bytesMb = tiffBytes.length / (1024d * 1024d);
@@ -443,6 +457,13 @@ public class ExportService {
         } else {
             logger.info("TIFF стадия {}: name={}, payload={}, память={} МБ", stage, baseName, payloadSize, usedMbFormatted);
         }
+    }
+
+    private void flushIfDifferent(BufferedImage original, BufferedImage replacement) {
+        if (original == null || original == replacement) {
+            return;
+        }
+        original.flush();
     }
 
     private float pxToPoints(Integer value) {
