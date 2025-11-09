@@ -226,7 +226,7 @@ public class ImageProcessingService {
         return metadata;
     }
 
-    public byte[] writeJpegCmyk(BufferedImage cmykImage, float quality, int dpi) throws IOException {
+    public byte[] writeJpegCmyk(BufferedImage cmykImage, float quality, int ppi) throws IOException {
         float normalizedQuality = Math.max(0f, Math.min(1f, quality));
         Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpeg");
         ImageWriter writer = null;
