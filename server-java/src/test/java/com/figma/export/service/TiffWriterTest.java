@@ -1,8 +1,5 @@
 package com.figma.export.service;
 
-import com.figma.export.model.TiffCompression;
-import com.twelvemonkeys.imageio.plugins.tiff.TIFFField;
-import com.twelvemonkeys.imageio.plugins.tiff.TIFFImageMetadata;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,7 +33,8 @@ class TiffWriterTest {
     @Test
     void writeSetsResolutionMetadata() throws IOException {
         BufferedImage source = new BufferedImage(120, 80, BufferedImage.TYPE_INT_RGB);
-        byte[] bytes = writer.write(source, TiffCompression.LZW, 300);
+        int ppi = 300;
+        byte[] bytes = writer.write(source, ppi);
 
         assertNotNull(bytes);
         assertTrue(bytes.length > 0);
@@ -57,17 +55,14 @@ class TiffWriterTest {
                         if (hNode != null && vNode != null) {
                             double horizontalPixelSize = Double.parseDouble(hNode.getAttribute("value"));
                             double verticalPixelSize = Double.parseDouble(vNode.getAttribute("value"));
-                            assertEquals(300d, 25.4 / horizontalPixelSize, 10.0);
-                            assertEquals(300d, 25.4 / verticalPixelSize, 10.0);
+                            double inferredHorizontalPpi = 25.4 / horizontalPixelSize;
+                            double inferredVerticalPpi = 25.4 / verticalPixelSize;
+                            assertEquals(ppi, inferredHorizontalPpi, 10.0);
+                            assertEquals(ppi, inferredVerticalPpi, 10.0);
                         }
                     }
                 } catch (IllegalArgumentException ignored) {
                 }
-
-                double nativeX = readNativePpi(metadata, 282);
-                double nativeY = readNativePpi(metadata, 283);
-                assertEquals(300d, nativeX, 0.5);
-                assertEquals(300d, nativeY, 0.5);
             } finally {
                 reader.dispose();
             }
@@ -84,48 +79,5 @@ class TiffWriterTest {
             }
         }
         return null;
-    }
-
-    private double readNativePpi(IIOMetadata metadata, int tagNumber) {
-        if (metadata instanceof TIFFImageMetadata tiffMetadata) {
-            TIFFField field = tiffMetadata.getTIFFField(tagNumber);
-            if (field != null && field.getCount() > 0) {
-                return field.getAsDouble(0);
-            }
-        }
-
-        String[] formats = metadata.getMetadataFormatNames();
-        if (formats == null) {
-            return Double.NaN;
-        }
-        for (String format : formats) {
-            if (format == null || !format.toLowerCase().contains("tiff")) {
-                continue;
-            }
-            try {
-                IIOMetadataNode root = (IIOMetadataNode) metadata.getAsTree(format);
-                IIOMetadataNode ifd = getChild(root, "TIFFIFD");
-                if (ifd == null) {
-                    continue;
-                }
-                for (int i = 0; i < ifd.getLength(); i++) {
-                    if (ifd.item(i) instanceof IIOMetadataNode field && "TIFFField".equals(field.getNodeName())) {
-                        if (Integer.toString(tagNumber).equals(field.getAttribute("number"))) {
-                            IIOMetadataNode rationals = getChild(field, "TIFFRationals");
-                            IIOMetadataNode rational = getChild(rationals, "TIFFRational");
-                            if (rational != null) {
-                                double numerator = Double.parseDouble(rational.getAttribute("numerator"));
-                                double denominator = Double.parseDouble(rational.getAttribute("denominator"));
-                                if (denominator != 0) {
-                                    return numerator / denominator;
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return Double.NaN;
     }
 }

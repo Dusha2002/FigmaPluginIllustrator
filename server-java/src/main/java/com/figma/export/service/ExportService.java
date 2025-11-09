@@ -5,10 +5,8 @@ import com.figma.export.color.ColorProfileManager;
 import com.figma.export.exception.ConversionException;
 import com.figma.export.model.ExportRequest;
 import com.figma.export.model.ExportResponse;
-import com.figma.export.model.TiffAntialias;
 import com.figma.export.model.UploadType;
 import com.figma.export.pdf.CmykPdfColorMapper;
-import com.figma.export.pdf.PdfStandard;
 import com.figma.export.svg.SvgRenderer;
 import com.figma.export.svg.SvgRenderer.SvgRenderResult;
 import org.apache.pdfbox.Loader;
@@ -49,7 +47,8 @@ public class ExportService {
 
     private static final String FORMAT_PDF = "pdf";
     private static final String FORMAT_TIFF = "tiff";
-    private static final double PX_TO_POINT = 72d / 96d;
+    private static final int DEFAULT_DPI = 72;
+    private static final double PX_TO_POINT = 72d / DEFAULT_DPI;
     private static final int MAX_TIFF_DIMENSION = 6000;
     private static final long MAX_TIFF_TOTAL_PIXELS = 36_000_000L;
 
@@ -98,10 +97,8 @@ public class ExportService {
     }
 
     private ExportResponse convertToPdf(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
-        ColorProfile colorProfile = colorProfileManager.getProfileOrDefault(request.getPdfColorProfile());
-        PdfStandard standard = PdfStandard.fromName(request.getPdfStandard());
-        String effectiveVersion = standard.ensureVersion(request.getPdfVersion());
-        int dpi = Math.max(request.getDpi(), 72);
+        ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
+        int dpi = Math.max(request.getDpi(), DEFAULT_DPI);
         PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi, colorProfile);
         PDDocument sourceDocument = sourceResult.document();
         PDDocument rasterizedDocument = null;
@@ -112,7 +109,7 @@ public class ExportService {
                 workingDocument = rasterizedDocument;
             }
 
-            applyPdfStandard(workingDocument, standard, effectiveVersion, colorProfile);
+            applyPdfDefaults(workingDocument, colorProfile);
             byte[] pdfBytes = saveDocument(workingDocument);
             ContentDisposition disposition = ContentDisposition.attachment()
                     .filename(baseName + ".pdf", StandardCharsets.UTF_8)
@@ -128,8 +125,8 @@ public class ExportService {
 
     private ExportResponse convertToTiff(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
         long startNs = System.nanoTime();
-        int ppi = request.getTiffPpi() > 0 ? request.getTiffPpi() : Math.max(request.getDpi(), 72);
-        ColorProfile colorProfile = colorProfileManager.getProfileOrDefault(request.getPdfColorProfile());
+        int ppi = Math.max(request.getDpi(), DEFAULT_DPI);
+        ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         BufferedImage sourceImage = switch (uploadType) {
             case SVG -> rasterizeSvgForImage(data, request);
             case PDF -> renderPdfPage(data, 0, ppi);
@@ -159,22 +156,17 @@ public class ExportService {
         flushIfDifferent(sourceImage, argb);
         sourceImage = null;
 
-        BufferedImage antialiased = imageProcessingService.applyAntialias(argb, request.getTiffAntialias());
-        logTiffStage("antialias", baseName, antialiased);
-        flushIfDifferent(argb, antialiased);
-        argb = null;
-
-        BufferedImage flattened = imageProcessingService.flattenTransparency(antialiased, Color.WHITE);
+        BufferedImage flattened = imageProcessingService.flattenTransparency(argb, Color.WHITE);
         logTiffStage("flattened", baseName, flattened);
-        flushIfDifferent(antialiased, flattened);
-        antialiased = null;
+        flushIfDifferent(argb, flattened);
+        argb = null;
 
         BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, colorProfile);
         logTiffStage("cmyk", baseName, cmyk);
         flushIfDifferent(flattened, cmyk);
         flattened = null;
 
-        byte[] tiffBytes = tiffWriter.write(cmyk, request.getTiffCompression(), ppi);
+        byte[] tiffBytes = tiffWriter.write(cmyk, ppi);
         flushIfDifferent(cmyk, null);
         cmyk = null;
 
@@ -276,7 +268,6 @@ public class ExportService {
             PDPage originalPage = source.getPage(i);
             PDRectangle mediaBox = originalPage.getMediaBox();
             BufferedImage rendered = renderer.renderImageWithDPI(i, dpi, ImageType.ARGB);
-            rendered = imageProcessingService.applyAntialias(rendered, TiffAntialias.BALANCED);
             BufferedImage flattened = imageProcessingService.flattenTransparency(rendered, Color.WHITE);
             BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, profile);
             byte[] jpegBytes = jpegWriter.writeCmyk(cmyk, 0.92f, dpi);
@@ -328,12 +319,8 @@ public class ExportService {
         }
     }
 
-    private void applyPdfStandard(PDDocument document, PdfStandard standard, String effectiveVersion, ColorProfile profile) throws IOException {
-        float version = parsePdfVersion(effectiveVersion);
-        if (!Float.isNaN(version)) {
-            document.setVersion(version);
-        }
-
+    private void applyPdfDefaults(PDDocument document, ColorProfile profile) throws IOException {
+        document.setVersion(1.4f);
         PDDocumentInformation information = document.getDocumentInformation();
         if (information == null) {
             information = new PDDocumentInformation();
@@ -341,7 +328,6 @@ public class ExportService {
         }
         information.setProducer("Figma Export Server");
         information.setCreator("Figma Export Server");
-        information.setKeywords(standard.getId());
         information.setTrapped("False");
         Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
         calendar.setTimeInMillis(Instant.now().toEpochMilli());
@@ -359,10 +345,6 @@ public class ExportService {
         intent.setOutputConditionIdentifier(profile.getOutputConditionIdentifier());
         intent.setRegistryName("http://www.color.org");
         catalog.addOutputIntent(intent);
-
-        if (standard.isPdfx()) {
-            catalog.setLanguage("ru-RU");
-        }
     }
 
     private byte[] saveDocument(PDDocument document) throws IOException {
@@ -485,17 +467,6 @@ public class ExportService {
 
     private float pxToPoints(int value) {
         return (float) (value * PX_TO_POINT);
-    }
-
-    private float parsePdfVersion(String value) {
-        if (value == null || value.isBlank()) {
-            return Float.NaN;
-        }
-        try {
-            return Float.parseFloat(value.trim());
-        } catch (NumberFormatException ex) {
-            return Float.NaN;
-        }
     }
 
     private record PdfDocumentResult(PDDocument document, boolean vector) {
