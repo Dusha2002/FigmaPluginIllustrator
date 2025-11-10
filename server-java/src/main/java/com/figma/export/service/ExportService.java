@@ -125,16 +125,20 @@ public class ExportService {
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
         
-        // Создаём список временных PDF документов
-        java.util.List<PDDocument> tempDocuments = new java.util.ArrayList<>();
-        java.util.List<ByteArrayOutputStream> tempStreams = new java.util.ArrayList<>();
+        logger.info("Начало объединения {} файлов в PDF: baseName={}, dpi={}", files.size(), baseName, dpi);
+        
+        // Создаём список временных байтовых массивов готовых PDF
+        java.util.List<byte[]> pdfBytes = new java.util.ArrayList<>();
         
         try {
-            // Создаём отдельный PDF для каждого элемента
+            // Создаём отдельный полностью готовый PDF для каждого элемента
             for (int i = 0; i < files.size(); i++) {
                 org.springframework.web.multipart.MultipartFile file = files.get(i);
                 byte[] data = file.getBytes();
                 UploadType uploadType = detectUploadType(file);
+                
+                logger.info("Обработка файла {}/{}: name={}, type={}, size={} bytes", 
+                    i + 1, files.size(), file.getOriginalFilename(), uploadType, data.length);
                 
                 // Получаем размеры для текущего элемента
                 Integer widthPx = request.getWidthPx(i);
@@ -152,54 +156,43 @@ public class ExportService {
                 PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, itemRequest, dpi, colorProfile);
                 PDDocument sourceDocument = sourceResult.document();
                 
-                // Сохраняем документ во временный поток
-                ByteArrayOutputStream tempStream = new ByteArrayOutputStream();
-                sourceDocument.save(tempStream);
-                sourceDocument.close();
-                
-                // Загружаем обратно для корректного слияния
-                PDDocument tempDoc = Loader.loadPDF(tempStream.toByteArray());
-                tempDocuments.add(tempDoc);
-                tempStreams.add(tempStream);
+                try {
+                    // Применяем настройки PDF к каждому документу ДО объединения
+                    applyPdfDefaults(sourceDocument, colorProfile);
+                    
+                    // Сохраняем готовый документ
+                    ByteArrayOutputStream tempStream = new ByteArrayOutputStream();
+                    sourceDocument.save(tempStream);
+                    pdfBytes.add(tempStream.toByteArray());
+                    tempStream.close();
+                } finally {
+                    sourceDocument.close();
+                }
             }
             
-            // Используем PDFMergerUtility для корректного объединения
+            // Используем PDFMergerUtility для объединения готовых PDF
             org.apache.pdfbox.multipdf.PDFMergerUtility merger = new org.apache.pdfbox.multipdf.PDFMergerUtility();
-            PDDocument combinedDocument = new PDDocument();
+            ByteArrayOutputStream mergedStream = new ByteArrayOutputStream();
             
-            try {
-                for (PDDocument doc : tempDocuments) {
-                    merger.appendDocument(combinedDocument, doc);
-                }
-                
-                // Применяем настройки PDF
-                applyPdfDefaults(combinedDocument, colorProfile);
-                
-                byte[] pdfBytes = saveDocument(combinedDocument);
-                ContentDisposition disposition = ContentDisposition.attachment()
-                        .filename(baseName + ".pdf", StandardCharsets.UTF_8)
-                        .build();
-                return new ExportResponse(pdfBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
-            } finally {
-                combinedDocument.close();
+            for (byte[] pdfData : pdfBytes) {
+                merger.addSource(new org.apache.pdfbox.io.RandomAccessReadBuffer(pdfData));
             }
-        } finally {
-            // Закрываем все временные документы
-            for (PDDocument doc : tempDocuments) {
-                try {
-                    doc.close();
-                } catch (Exception e) {
-                    // Игнорируем ошибки закрытия
-                }
-            }
-            // Закрываем все потоки
-            for (ByteArrayOutputStream stream : tempStreams) {
-                try {
-                    stream.close();
-                } catch (Exception e) {
-                    // Игнорируем ошибки закрытия
-                }
-            }
+            
+            merger.setDestinationStream(mergedStream);
+            merger.mergeDocuments(null);
+            
+            byte[] finalPdfBytes = mergedStream.toByteArray();
+            mergedStream.close();
+            
+            logger.info("PDF объединение завершено: итоговый размер={} bytes ({} МБ)", 
+                finalPdfBytes.length, String.format("%.2f", finalPdfBytes.length / (1024d * 1024d)));
+            
+            ContentDisposition disposition = ContentDisposition.attachment()
+                    .filename(baseName + ".pdf", StandardCharsets.UTF_8)
+                    .build();
+            return new ExportResponse(finalPdfBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
+        } catch (Exception e) {
+            throw new ConversionException("Не удалось объединить PDF документы.", e);
         }
     }
 

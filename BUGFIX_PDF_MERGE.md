@@ -30,22 +30,37 @@ for (PDDocument sourceDocument : documents) {
 
 ### Стало (правильно):
 ```java
-// 1. Сохраняем каждый документ во временный поток
-ByteArrayOutputStream tempStream = new ByteArrayOutputStream();
-sourceDocument.save(tempStream);
-sourceDocument.close();
-
-// 2. Загружаем обратно для корректного слияния
-PDDocument tempDoc = Loader.loadPDF(tempStream.toByteArray());
-tempDocuments.add(tempDoc);
-
-// 3. Используем PDFMergerUtility
-PDFMergerUtility merger = new PDFMergerUtility();
-PDDocument combinedDocument = new PDDocument();
-for (PDDocument doc : tempDocuments) {
-    merger.appendDocument(combinedDocument, doc); // ✅ Правильно!
+// 1. Создаём и полностью подготавливаем каждый PDF документ
+for (int i = 0; i < files.size(); i++) {
+    PDDocument sourceDocument = createSourcePdfDocument(...);
+    
+    // Применяем настройки ДО объединения
+    applyPdfDefaults(sourceDocument, colorProfile);
+    
+    // Сохраняем готовый документ
+    ByteArrayOutputStream tempStream = new ByteArrayOutputStream();
+    sourceDocument.save(tempStream);
+    pdfBytes.add(tempStream.toByteArray());
+    sourceDocument.close();
 }
+
+// 2. Используем PDFMergerUtility для объединения готовых PDF
+PDFMergerUtility merger = new PDFMergerUtility();
+ByteArrayOutputStream mergedStream = new ByteArrayOutputStream();
+
+for (byte[] pdfData : pdfBytes) {
+    merger.addSource(new RandomAccessReadBuffer(pdfData));
+}
+
+merger.setDestinationStream(mergedStream);
+merger.mergeDocuments(null); // ✅ Правильно!
 ```
+
+### Ключевые изменения:
+1. **Применяем `applyPdfDefaults()` к каждому документу ДО объединения** - это предотвращает искажения
+2. **Сохраняем каждый документ как готовый PDF** - полностью сформированная структура
+3. **Используем `RandomAccessReadBuffer`** для передачи байтов в merger
+4. **Используем `mergeDocuments()`** вместо `appendDocument()` - более надёжный метод
 
 ## Что делает PDFMergerUtility
 
