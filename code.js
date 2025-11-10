@@ -1,5 +1,4 @@
 const DEFAULT_PPI = 72;
-const DEFAULT_TIFF_PPI = 300;
 const MM_PER_PX = 25.4 / DEFAULT_PPI;
 const PX_PER_MM = DEFAULT_PPI / 25.4;
 const DEFAULT_SERVER_URL = 'https://figmapluginillustrator.up.railway.app';
@@ -23,7 +22,11 @@ const defaultPreferences = {
   sizePreset: DEFAULT_UI_SIZE_KEY,
   width: DEFAULT_UI_SIZE.width,
   height: DEFAULT_UI_SIZE.height,
-  themeOverride: null
+  themeOverride: null,
+  exportFormat: 'pdf',
+  tiffPpi: 300,
+  tiffQuality: 'standard',
+  tiffLzw: true
 };
 
 const currentUiSize = {
@@ -70,7 +73,11 @@ function sendUiPreferences() {
     type: 'ui-preferences',
     uiScale: uiPreferences.uiScale,
     sizePreset: uiPreferences.sizePreset,
-    themeOverride: uiPreferences.themeOverride
+    themeOverride: uiPreferences.themeOverride,
+    exportFormat: uiPreferences.exportFormat,
+    tiffPpi: uiPreferences.tiffPpi,
+    tiffQuality: uiPreferences.tiffQuality,
+    tiffLzw: uiPreferences.tiffLzw
   });
 }
 
@@ -402,7 +409,7 @@ async function handlePositionUpdate(positionMm) {
 
 async function exportSelection(settings) {
   const exportFormat = settings && typeof settings.format === 'string' ? settings.format : 'pdf';
-  const basePpi = exportFormat === 'tiff' ? DEFAULT_TIFF_PPI : DEFAULT_PPI;
+  const basePpi = DEFAULT_PPI;
   const requestedPpi = settings && typeof settings.ppi === 'number'
     ? Math.max(settings.ppi, 1)
     : basePpi;
@@ -558,6 +565,25 @@ figma.ui.onmessage = async (message) => {
     case 'set-theme-override': {
       const theme = typeof message.theme === 'string' ? message.theme : null;
       await updatePreferences({ themeOverride: theme });
+      break;
+    }
+    case 'update-preferences': {
+      const update = {};
+      if (typeof message.exportFormat === 'string') {
+        update.exportFormat = message.exportFormat;
+      }
+      if (typeof message.tiffPpi === 'number') {
+        update.tiffPpi = message.tiffPpi;
+      }
+      if (typeof message.tiffQuality === 'string') {
+        update.tiffQuality = message.tiffQuality;
+      }
+      if (typeof message.tiffLzw === 'boolean') {
+        update.tiffLzw = message.tiffLzw;
+      }
+      if (Object.keys(update).length > 0) {
+        await updatePreferences(update);
+      }
       break;
     }
     case 'request-theme': {

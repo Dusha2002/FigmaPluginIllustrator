@@ -489,13 +489,18 @@
         </label>
       </div>
       <div class="stack" id="tiff-options" hidden>
+        <select id="tiff-ppi" aria-label="Разрешение TIFF">
+          <option value="72">72 PPI (быстрый экспорт)</option>
+          <option value="150">150 PPI (среднее качество)</option>
+          <option value="300" selected>300 PPI (высокое качество)</option>
+        </select>
         <select id="tiff-quality" aria-label="Настройки сглаживания TIFF">
           <option value="standard" selected>Стандартное качество</option>
           <option value="supersample">Лучшее качество объектов (суперсэмплинг)</option>
           <option value="texthint">Лучшее качество текста (хинтовка)</option>
         </select>
         <label class="checkbox" id="tiff-lzw-option">
-          <input id="tiff-lzw" type="checkbox" />
+          <input id="tiff-lzw" type="checkbox" checked />
           LZW-сжатие
         </label>
       </div>
@@ -522,6 +527,7 @@
     const formatSelect = document.getElementById('export-format');
     const pdfOptionsBlock = null;
     const tiffOptionsContainer = document.getElementById('tiff-options');
+    const tiffPpiSelect = document.getElementById('tiff-ppi');
     const tiffQualitySelect = document.getElementById('tiff-quality');
     const tiffLzwOption = document.getElementById('tiff-lzw-option');
     const tiffLzwCheckbox = document.getElementById('tiff-lzw');
@@ -559,13 +565,40 @@
       tiffOptionsContainer.classList.toggle('hidden', !isTiff);
       tiffLzwOption.classList.toggle('hidden', !isTiff);
       if (!isTiff) {
-        tiffLzwCheckbox.checked = false;
+        tiffPpiSelect.value = '300';
         tiffQualitySelect.value = 'standard';
+        tiffLzwCheckbox.checked = false;
+      } else if (!isApplyingPreferences) {
+        // Для TIFF устанавливаем значения по умолчанию
+        tiffPpiSelect.value = '300';
+        tiffQualitySelect.value = 'standard';
+        tiffLzwCheckbox.checked = true;
       }
     }
 
     formatSelect.addEventListener('change', () => {
       updateFormatSpecificOptions();
+      if (!isApplyingPreferences) {
+        post('update-preferences', { exportFormat: formatSelect.value });
+      }
+    });
+
+    tiffPpiSelect.addEventListener('change', () => {
+      if (!isApplyingPreferences) {
+        post('update-preferences', { tiffPpi: parseInt(tiffPpiSelect.value, 10) || 300 });
+      }
+    });
+
+    tiffQualitySelect.addEventListener('change', () => {
+      if (!isApplyingPreferences) {
+        post('update-preferences', { tiffQuality: tiffQualitySelect.value });
+      }
+    });
+
+    tiffLzwCheckbox.addEventListener('change', () => {
+      if (!isApplyingPreferences) {
+        post('update-preferences', { tiffLzw: tiffLzwCheckbox.checked });
+      }
     });
 
     updateFormatSpecificOptions();
@@ -1360,7 +1393,7 @@
         }
         case 'ui-preferences': {
           isApplyingPreferences = true;
-          const { uiScale, sizePreset, themeOverride } = message;
+          const { uiScale, sizePreset, themeOverride, exportFormat, tiffPpi, tiffQuality, tiffLzw } = message;
           if (uiScaleSelect && typeof uiScale === 'string') {
             uiScaleSelect.value = uiScale;
             applyUiScale(uiScale);
@@ -1374,6 +1407,19 @@
           } else {
             manualThemeOverride = null;
           }
+          if (typeof exportFormat === 'string') {
+            formatSelect.value = exportFormat;
+          }
+          if (typeof tiffPpi === 'number') {
+            tiffPpiSelect.value = String(tiffPpi);
+          }
+          if (typeof tiffQuality === 'string') {
+            tiffQualitySelect.value = tiffQuality;
+          }
+          if (typeof tiffLzw === 'boolean') {
+            tiffLzwCheckbox.checked = tiffLzw;
+          }
+          updateFormatSpecificOptions();
           isApplyingPreferences = false;
           break;
         }
@@ -1590,7 +1636,7 @@
       showExportOverlay();
       const exportFormat = formatSelect.value;
       const payload = { format: exportFormat };
-      const basePpi = exportFormat === 'tiff' ? 300 : 72;
+      const basePpi = exportFormat === 'tiff' ? parseInt(tiffPpiSelect.value, 10) || 300 : 72;
       payload.serverUrl = DEFAULT_SERVER_URL;
       payload.useServer = true;
       if (exportFormat === 'pdf') {
