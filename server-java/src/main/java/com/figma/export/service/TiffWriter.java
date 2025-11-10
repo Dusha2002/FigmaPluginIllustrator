@@ -137,7 +137,7 @@ public class TiffWriter {
             // Добавляем ICC профиль через нативный формат
             String nativeFormat = metadata.getNativeMetadataFormatName();
             if (nativeFormat != null && nativeFormat.contains("tiff")) {
-                addCompression(metadata, nativeFormat, lzwCompression);
+                // Не добавляем тег Compression вручную - ImageWriteParam сам это сделает
                 ColorSpace colorSpace = image.getColorModel().getColorSpace();
                 if (colorSpace instanceof ICC_ColorSpace iccColorSpace) {
                     ICC_Profile profile = iccColorSpace.getProfile();
@@ -148,65 +148,6 @@ public class TiffWriter {
             }
         } catch (Exception e) {
             logger.warn("Failed to embed ICC profile in TIFF metadata", e);
-        }
-    }
-
-    private void addCompression(IIOMetadata metadata, String nativeFormat, boolean lzwCompression) {
-        try {
-            org.w3c.dom.Node root = metadata.getAsTree(nativeFormat);
-            org.w3c.dom.NodeList children = root.getChildNodes();
-            org.w3c.dom.Node ifd = null;
-            for (int i = 0; i < children.getLength(); i++) {
-                org.w3c.dom.Node child = children.item(i);
-                if ("TIFFIFD".equals(child.getNodeName())) {
-                    ifd = child;
-                    break;
-                }
-            }
-            if (ifd == null) {
-                return;
-            }
-
-            org.w3c.dom.Document doc = root instanceof org.w3c.dom.Document
-                    ? (org.w3c.dom.Document) root
-                    : root.getOwnerDocument();
-            if (doc == null) {
-                return;
-            }
-
-            org.w3c.dom.Element field = null;
-            org.w3c.dom.NodeList ifdChildren = ifd.getChildNodes();
-            for (int i = 0; i < ifdChildren.getLength(); i++) {
-                org.w3c.dom.Node child = ifdChildren.item(i);
-                if (child instanceof org.w3c.dom.Element element
-                        && "TIFFField".equals(element.getNodeName())
-                        && "259".equals(element.getAttribute("number"))) {
-                    field = element;
-                    break;
-                }
-            }
-
-            if (field == null) {
-                field = doc.createElement("TIFFField");
-                field.setAttribute("number", "259");
-                field.setAttribute("name", "Compression");
-                ifd.appendChild(field);
-            } else {
-                while (field.hasChildNodes()) {
-                    field.removeChild(field.getFirstChild());
-                }
-            }
-
-            org.w3c.dom.Element shorts = doc.createElement("TIFFShorts");
-            org.w3c.dom.Element value = doc.createElement("TIFFShort");
-            // 1 = none, 5 = LZW
-            value.setAttribute("value", lzwCompression ? "5" : "1");
-            shorts.appendChild(value);
-            field.appendChild(shorts);
-
-            metadata.setFromTree(nativeFormat, root);
-        } catch (Exception e) {
-            logger.warn("Failed to set compression metadata", e);
         }
     }
 
