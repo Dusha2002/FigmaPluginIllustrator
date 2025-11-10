@@ -35,7 +35,7 @@ public class TiffWriter {
         if (image == null) {
             throw new IllegalArgumentException("image must not be null");
         }
-        ImageTypeSpecifier typeSpecifier = new ImageTypeSpecifier(image);
+        ImageTypeSpecifier typeSpecifier = ImageTypeSpecifier.createFromRenderedImage(image);
         ImageWriter writer = selectWriter(typeSpecifier);
         if (writer == null) {
             throw new IOException("TIFF writer not found");
@@ -51,9 +51,29 @@ public class TiffWriter {
             if (writeParam.canWriteCompressed()) {
                 writeParam.setCompressionMode(ImageWriteParam.MODE_DISABLED);
             }
-            IIOMetadata metadata = writer.getDefaultImageMetadata(new ImageTypeSpecifier(image), writeParam);
+            long metadataStartNs = System.nanoTime();
+            IIOMetadata metadata = writer.getDefaultImageMetadata(typeSpecifier, writeParam);
             resolutionMetadata.apply(metadata, ppi);
-            writer.write(null, new IIOImage(image, null, metadata), writeParam);
+            IIOMetadata convertedMetadata;
+            try {
+                convertedMetadata = writer.convertImageMetadata(metadata, typeSpecifier, writeParam);
+            } catch (Exception ex) {
+                if (logger.isWarnEnabled()) {
+                    logger.warn("TIFF metadata conversion failed, using original metadata", ex);
+                }
+                convertedMetadata = metadata;
+            }
+            if (logger.isDebugEnabled()) {
+                long metadataElapsed = (System.nanoTime() - metadataStartNs) / 1_000_000L;
+                logger.debug("TIFF metadata prepared in {} мс", metadataElapsed);
+            }
+            long writeStartNs = System.nanoTime();
+            writer.write(null, new IIOImage(image, null, convertedMetadata), writeParam);
+            if (logger.isDebugEnabled()) {
+                long writeElapsed = (System.nanoTime() - writeStartNs) / 1_000_000L;
+                logger.debug("TIFF image data written in {} мс", writeElapsed);
+            }
+            ios.flush();
             byte[] result = buffer.toByteArray();
             if (logger.isInfoEnabled()) {
                 long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
