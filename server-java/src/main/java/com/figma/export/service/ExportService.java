@@ -125,8 +125,12 @@ public class ExportService {
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
         
-        PDDocument combinedDocument = new PDDocument();
+        // Создаём список временных PDF документов
+        java.util.List<PDDocument> tempDocuments = new java.util.ArrayList<>();
+        java.util.List<ByteArrayOutputStream> tempStreams = new java.util.ArrayList<>();
+        
         try {
+            // Создаём отдельный PDF для каждого элемента
             for (int i = 0; i < files.size(); i++) {
                 org.springframework.web.multipart.MultipartFile file = files.get(i);
                 byte[] data = file.getBytes();
@@ -148,27 +152,54 @@ public class ExportService {
                 PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, itemRequest, dpi, colorProfile);
                 PDDocument sourceDocument = sourceResult.document();
                 
-                try {
-                    // Копируем страницы из исходного документа в объединённый
-                    for (PDPage page : sourceDocument.getPages()) {
-                        combinedDocument.addPage(page);
-                    }
-                } finally {
-                    // Не закрываем sourceDocument, так как страницы используются в combinedDocument
-                    // sourceDocument.close();
-                }
+                // Сохраняем документ во временный поток
+                ByteArrayOutputStream tempStream = new ByteArrayOutputStream();
+                sourceDocument.save(tempStream);
+                sourceDocument.close();
+                
+                // Загружаем обратно для корректного слияния
+                PDDocument tempDoc = Loader.loadPDF(tempStream.toByteArray());
+                tempDocuments.add(tempDoc);
+                tempStreams.add(tempStream);
             }
             
-            // Применяем настройки PDF
-            applyPdfDefaults(combinedDocument, colorProfile);
+            // Используем PDFMergerUtility для корректного объединения
+            org.apache.pdfbox.multipdf.PDFMergerUtility merger = new org.apache.pdfbox.multipdf.PDFMergerUtility();
+            PDDocument combinedDocument = new PDDocument();
             
-            byte[] pdfBytes = saveDocument(combinedDocument);
-            ContentDisposition disposition = ContentDisposition.attachment()
-                    .filename(baseName + ".pdf", StandardCharsets.UTF_8)
-                    .build();
-            return new ExportResponse(pdfBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
+            try {
+                for (PDDocument doc : tempDocuments) {
+                    merger.appendDocument(combinedDocument, doc);
+                }
+                
+                // Применяем настройки PDF
+                applyPdfDefaults(combinedDocument, colorProfile);
+                
+                byte[] pdfBytes = saveDocument(combinedDocument);
+                ContentDisposition disposition = ContentDisposition.attachment()
+                        .filename(baseName + ".pdf", StandardCharsets.UTF_8)
+                        .build();
+                return new ExportResponse(pdfBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
+            } finally {
+                combinedDocument.close();
+            }
         } finally {
-            combinedDocument.close();
+            // Закрываем все временные документы
+            for (PDDocument doc : tempDocuments) {
+                try {
+                    doc.close();
+                } catch (Exception e) {
+                    // Игнорируем ошибки закрытия
+                }
+            }
+            // Закрываем все потоки
+            for (ByteArrayOutputStream stream : tempStreams) {
+                try {
+                    stream.close();
+                } catch (Exception e) {
+                    // Игнорируем ошибки закрытия
+                }
+            }
         }
     }
 

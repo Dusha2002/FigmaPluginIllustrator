@@ -103,6 +103,7 @@ Content-Type: multipart/form-data
 - **Цветовое пространство**: CMYK
 - **Векторный рендеринг**: Apache Batik + PdfBoxGraphics2D
 - **Растровая обработка**: ImageIO + Java2D
+- **Объединение PDF**: PDFMergerUtility для корректного слияния документов без артефактов
 
 ## Ограничения
 
