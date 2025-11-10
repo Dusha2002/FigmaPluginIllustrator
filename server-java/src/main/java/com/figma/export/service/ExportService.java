@@ -180,7 +180,7 @@ public class ExportService {
                 elapsedMs);
 
         ContentDisposition disposition = ContentDisposition.attachment()
-                .filename(baseName + ".tiff", StandardCharsets.UTF_8)
+                .filename(baseName + ".tif", StandardCharsets.UTF_8)
                 .build();
         return new ExportResponse(tiffBytes, "image/tiff", disposition);
     }

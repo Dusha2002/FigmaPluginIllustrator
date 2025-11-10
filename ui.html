@@ -1221,7 +1221,7 @@
             ppi,
             serverUrl
           });
-          const extension = format === 'pdf' ? 'pdf' : 'tiff';
+          const extension = format === 'pdf' ? 'pdf' : 'tif';
           await saveBlob(resultBlob, `${exportName}.${extension}`);
         } catch (error) {
           console.error('Ошибка обработки элемента', exportName, error);
