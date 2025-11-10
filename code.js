@@ -1,4 +1,5 @@
 const DEFAULT_PPI = 72;
+const DEFAULT_TIFF_PPI = 300;
 const MM_PER_PX = 25.4 / DEFAULT_PPI;
 const PX_PER_MM = DEFAULT_PPI / 25.4;
 const DEFAULT_SERVER_URL = 'https://figmapluginillustrator.up.railway.app';
@@ -401,7 +402,7 @@ async function handlePositionUpdate(positionMm) {
 
 async function exportSelection(settings) {
   const exportFormat = settings && typeof settings.format === 'string' ? settings.format : 'pdf';
-  const basePpi = DEFAULT_PPI;
+  const basePpi = exportFormat === 'tiff' ? DEFAULT_TIFF_PPI : DEFAULT_PPI;
   const requestedPpi = settings && typeof settings.ppi === 'number'
     ? Math.max(settings.ppi, 1)
     : basePpi;
@@ -414,7 +415,7 @@ async function exportSelection(settings) {
     ? settings.serverUrl
     : (typeof DEFAULT_SERVER_URL === 'undefined' ? '' : DEFAULT_SERVER_URL);
   const exportScale = exportFormat === 'tiff'
-    ? (tiffQuality === 'supersample' ? 2 : 1)
+    ? (tiffQuality === 'supersample' ? 2 : 1) * (requestedPpi / DEFAULT_PPI)
     : Math.max(requestedPpi / basePpi, 0.01);
   const selection = figma.currentPage.selection;
   if (selection.length === 0) {
@@ -443,12 +444,12 @@ async function exportSelection(settings) {
     const bounds = node.absoluteRenderBounds;
     const baseWidth = bounds ? bounds.width : (node.width || 0);
     const baseHeight = bounds ? bounds.height : (node.height || 0);
-    // Для TIFF используем точные размеры без округления, для PDF - с масштабированием
+    // Для TIFF масштабируем согласно PPI, для PDF - согласно exportScale
     const widthPx = exportFormat === 'tiff' 
-      ? Math.floor(baseWidth)
+      ? Math.max(1, Math.round(baseWidth * exportScale))
       : Math.max(1, Math.round(baseWidth * exportScale));
     const heightPx = exportFormat === 'tiff'
-      ? Math.floor(baseHeight)
+      ? Math.max(1, Math.round(baseHeight * exportScale))
       : Math.max(1, Math.round(baseHeight * exportScale));
     exported.push({
       name: baseName,

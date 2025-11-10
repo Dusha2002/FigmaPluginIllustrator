@@ -1590,7 +1590,7 @@
       showExportOverlay();
       const exportFormat = formatSelect.value;
       const payload = { format: exportFormat };
-      const basePpi = 72;
+      const basePpi = exportFormat === 'tiff' ? 300 : 72;
       payload.serverUrl = DEFAULT_SERVER_URL;
       payload.useServer = true;
       if (exportFormat === 'pdf') {
