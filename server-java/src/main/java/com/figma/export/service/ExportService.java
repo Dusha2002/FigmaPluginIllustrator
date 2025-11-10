@@ -221,7 +221,7 @@ public class ExportService {
                 applyPdfDefaults(combinedDocument, colorProfile, resolvedVersionText, pdfStandard);
                 enforcePdfStandard(combinedDocument, new PdfDocumentResult(combinedDocument, allVector), pdfStandard, baseName);
                 finalPdfBytes = saveDocument(combinedDocument);
-                finalPdfBytes = ensureRequestedPdfVersion(finalPdfBytes, resolvedVersionText, baseName, pdfStandard);
+                finalPdfBytes = ensureRequestedPdfVersion(finalPdfBytes, resolvedVersionText, baseName, pdfStandard, allVector);
             }
 
             logger.info("PDF объединение завершено: итоговый размер={} bytes ({} МБ)", 
@@ -261,7 +261,7 @@ public class ExportService {
             applyPdfDefaults(workingDocument, colorProfile, resolvedVersionText, pdfStandard);
             enforcePdfStandard(workingDocument, sourceResult, pdfStandard, baseName);
             byte[] pdfBytes = saveDocument(workingDocument);
-            pdfBytes = ensureRequestedPdfVersion(pdfBytes, resolvedVersionText, baseName, pdfStandard);
+            pdfBytes = ensureRequestedPdfVersion(pdfBytes, resolvedVersionText, baseName, pdfStandard, sourceResult.vector());
 
             logger.info("PDF создан: size={} bytes ({} МБ)", 
                 pdfBytes.length, String.format("%.2f", pdfBytes.length / (1024d * 1024d)));
@@ -743,7 +743,7 @@ public class ExportService {
         }
     }
 
-    private byte[] ensureRequestedPdfVersion(byte[] pdfBytes, String requestedVersionText, String baseName, PdfStandard pdfStandard) {
+    private byte[] ensureRequestedPdfVersion(byte[] pdfBytes, String requestedVersionText, String baseName, PdfStandard pdfStandard, boolean isVector) {
         float requestedVersion = parsePdfVersion(requestedVersionText);
         float actualVersion = extractPdfHeaderVersion(pdfBytes);
         if (requestedVersion <= 0f || actualVersion <= 0f) {
@@ -756,6 +756,13 @@ public class ExportService {
         // Для PDF/X не используем OpenPDF fallback, чтобы сохранить метаданные
         if (pdfStandard.isPdfx()) {
             logger.info("PDF/X: версия {} отличается от запрошенной {}, но OpenPDF fallback пропущен для сохранения метаданных (документ: {})",
+                    String.format(Locale.ROOT, "%.1f", actualVersion), formatPdfVersion(requestedVersion), baseName);
+            return pdfBytes;
+        }
+
+        // Для векторных PDF не используем OpenPDF fallback, чтобы сохранить структуру (XObject, формы)
+        if (isVector) {
+            logger.info("Векторный PDF: версия {} отличается от запрошенной {}, но OpenPDF fallback пропущен для сохранения векторной структуры (документ: {})",
                     String.format(Locale.ROOT, "%.1f", actualVersion), formatPdfVersion(requestedVersion), baseName);
             return pdfBytes;
         }
