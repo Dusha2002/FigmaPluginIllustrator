@@ -20,6 +20,7 @@ import java.util.Iterator;
 public class TiffWriter {
 
     static {
+        ImageIO.setUseCache(false);
         ImageIO.scanForPlugins();
     }
 
