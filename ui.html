@@ -1144,13 +1144,12 @@
     async function exportViaServer(item, options) {
       const {
         format,
-        dpi,
+        ppi,
         pdfVersion,
         pdfStandard,
         pdfColorProfile,
         tiffCompression,
         tiffAntialias,
-        tiffPpi,
         serverUrl
       } = options;
       let endpoint;
@@ -1171,14 +1170,12 @@
       const formData = new FormData();
       formData.append('format', format);
       formData.append('name', item.name || 'export');
-      formData.append('dpi', dpi);
+      formData.append('ppi', ppi);
       formData.append('pdfVersion', '1.4');
       formData.append('pdfStandard', 'none');
       formData.append('pdfColorProfile', 'coated_fogra39');
       formData.append('tiffCompression', 'none');
       formData.append('tiffAntialias', 'none');
-      formData.append('tiffPpi', 72);
-      formData.append('tiffDpi', 72);
       formData.append('widthPx', item.widthPx || '');
       formData.append('heightPx', item.heightPx || '');
       formData.append('image', uploadBlob, `${item.name || 'export'}.${extension}`);
@@ -1207,7 +1204,7 @@
       const {
         items,
         format,
-        dpi,
+        ppi,
         useServer,
         serverUrl
       } = message;
@@ -1221,7 +1218,7 @@
           }
           const resultBlob = await exportViaServer(item, {
             format,
-            dpi,
+            ppi,
             serverUrl
           });
           const extension = format === 'pdf' ? 'pdf' : 'tiff';
@@ -1567,9 +1564,9 @@
       payload.serverUrl = DEFAULT_SERVER_URL;
       payload.useServer = true;
       if (exportFormat === 'pdf') {
-        payload.dpi = basePpi;
+        payload.ppi = basePpi;
       } else {
-        payload.dpi = basePpi;
+        payload.ppi = basePpi;
       }
       post('export-cmyk', payload);
     });

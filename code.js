@@ -402,8 +402,8 @@ async function handlePositionUpdate(positionMm) {
 async function exportSelection(settings) {
   const exportFormat = settings && typeof settings.format === 'string' ? settings.format : 'pdf';
   const basePpi = DEFAULT_PPI;
-  const requestedPpi = settings && typeof settings.dpi === 'number'
-    ? Math.max(settings.dpi, 1)
+  const requestedPpi = settings && typeof settings.ppi === 'number'
+    ? Math.max(settings.ppi, 1)
     : basePpi;
   const useServer = true;
   const serverUrl = settings && typeof settings.serverUrl === 'string' && settings.serverUrl.trim().length > 0
@@ -460,7 +460,7 @@ async function exportSelection(settings) {
   return {
     items: exported,
     format: exportFormat,
-    dpi: effectivePpi,
+    ppi: effectivePpi,
     useServer: true,
     serverUrl
   };
@@ -499,7 +499,7 @@ figma.ui.onmessage = async (message) => {
           success: true,
           items: result.items,
           format: result.format,
-          dpi: result.dpi,
+          ppi: result.ppi,
           useServer: result.useServer,
           serverUrl: result.serverUrl
         });

@@ -15,7 +15,7 @@ public class ExportRequest {
     private String name;
 
     @Positive
-    private int dpi;
+    private int ppi;
 
     @Min(1)
     private Integer widthPx;
@@ -39,12 +39,12 @@ public class ExportRequest {
         this.name = name;
     }
 
-    public int getDpi() {
-        return dpi;
+    public int getPpi() {
+        return ppi;
     }
 
-    public void setDpi(int dpi) {
-        this.dpi = dpi;
+    public void setPpi(int ppi) {
+        this.ppi = ppi;
     }
 
     public Integer getWidthPx() {
