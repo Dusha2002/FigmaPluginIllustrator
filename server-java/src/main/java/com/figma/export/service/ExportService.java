@@ -151,6 +151,7 @@ public class ExportService {
                 itemRequest.setPpi(request.getPpi());
                 itemRequest.setWidthPx(widthPx);
                 itemRequest.setHeightPx(heightPx);
+                itemRequest.setPdfVersion(request.getPdfVersion());
                 
                 // Создаём PDF-документ для текущего элемента
                 PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, itemRequest, dpi, colorProfile);
@@ -158,7 +159,8 @@ public class ExportService {
                 
                 try {
                     // Применяем настройки PDF к каждому документу ДО объединения
-                    applyPdfDefaults(sourceDocument, colorProfile);
+                    String pdfVersion = request.getPdfVersion();
+                    applyPdfDefaults(sourceDocument, colorProfile, pdfVersion);
                     
                     // Сохраняем готовый документ
                     ByteArrayOutputStream tempStream = new ByteArrayOutputStream();
@@ -216,7 +218,8 @@ public class ExportService {
                 logger.info("Документ ВЕКТОРНЫЙ - сохраняется как есть с CMYK color mapping");
             }
 
-            applyPdfDefaults(workingDocument, colorProfile);
+            String pdfVersion = request.getPdfVersion();
+            applyPdfDefaults(workingDocument, colorProfile, pdfVersion);
             byte[] pdfBytes = saveDocument(workingDocument);
             
             logger.info("PDF создан: size={} bytes ({} МБ)", 
@@ -445,8 +448,28 @@ public class ExportService {
         }
     }
 
-    private void applyPdfDefaults(PDDocument document, ColorProfile profile) throws IOException {
-        document.setVersion(1.4f);
+    private float parsePdfVersion(String pdfVersion) {
+        if (pdfVersion == null || pdfVersion.isEmpty()) {
+            return 1.4f;
+        }
+        try {
+            float version = Float.parseFloat(pdfVersion);
+            // Проверяем диапазон 1.3 - 1.7
+            if (version >= 1.3f && version <= 1.7f) {
+                return version;
+            }
+            logger.warn("Некорректная версия PDF: {}. Используется 1.4", pdfVersion);
+            return 1.4f;
+        } catch (NumberFormatException e) {
+            logger.warn("Не удалось распарсить версию PDF: {}. Используется 1.4", pdfVersion);
+            return 1.4f;
+        }
+    }
+
+    private void applyPdfDefaults(PDDocument document, ColorProfile profile, String pdfVersion) throws IOException {
+        float version = parsePdfVersion(pdfVersion);
+        document.setVersion(version);
+        logger.info("Установлена версия PDF: {}", version);
         PDDocumentInformation information = document.getDocumentInformation();
         if (information == null) {
             information = new PDDocumentInformation();

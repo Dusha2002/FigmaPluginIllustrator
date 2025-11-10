@@ -31,6 +31,9 @@ public class ExportRequest {
     @Pattern(regexp = "(?i)standard|supersample|texthint", message = "tiffQuality должен быть standard, supersample или texthint")
     private String tiffQuality;
     
+    @Pattern(regexp = "1\\.[3-7]", message = "pdfVersion должен быть от 1.3 до 1.7")
+    private String pdfVersion;
+    
     // Метаданные для множественных файлов (индекс -> ширина/высота)
     private Map<Integer, Integer> widthPxMap = new HashMap<>();
     private Map<Integer, Integer> heightPxMap = new HashMap<>();
@@ -89,6 +92,14 @@ public class ExportRequest {
 
     public void setTiffQuality(String tiffQuality) {
         this.tiffQuality = tiffQuality;
+    }
+
+    public String getPdfVersion() {
+        return pdfVersion;
+    }
+
+    public void setPdfVersion(String pdfVersion) {
+        this.pdfVersion = pdfVersion;
     }
 
     public Map<Integer, Integer> getWidthPxMap() {

@@ -488,6 +488,15 @@
           </select>
         </label>
       </div>
+      <div class="stack" id="pdf-options">
+        <select id="pdf-version" aria-label="Версия PDF">
+          <option value="1.3">PDF 1.3 (Acrobat 4)</option>
+          <option value="1.4" selected>PDF 1.4 (Acrobat 5)</option>
+          <option value="1.5">PDF 1.5 (Acrobat 6)</option>
+          <option value="1.6">PDF 1.6 (Acrobat 7)</option>
+          <option value="1.7">PDF 1.7 (Acrobat 8+)</option>
+        </select>
+      </div>
       <div class="stack" id="tiff-options" hidden>
         <select id="tiff-ppi" aria-label="Разрешение TIFF">
           <option value="72">72 PPI (быстрый экспорт)</option>
@@ -525,13 +534,13 @@
     const applySizeButton = document.getElementById('apply-size');
     const exportButton = document.getElementById('export-cmyk');
     const formatSelect = document.getElementById('export-format');
-    const pdfOptionsBlock = null;
+    const pdfOptionsContainer = document.getElementById('pdf-options');
+    const pdfVersionSelect = document.getElementById('pdf-version');
     const tiffOptionsContainer = document.getElementById('tiff-options');
     const tiffPpiSelect = document.getElementById('tiff-ppi');
     const tiffQualitySelect = document.getElementById('tiff-quality');
     const tiffLzwOption = document.getElementById('tiff-lzw-option');
     const tiffLzwCheckbox = document.getElementById('tiff-lzw');
-    const pdfVersionSelect = null;
     const pdfStandardSelect = null;
     const pdfColorProfileSelect = null;
     const tiffCompressionSelect = null;
@@ -560,10 +569,18 @@
     function updateFormatSpecificOptions() {
       const format = formatSelect.value;
       const isTiff = format === 'tiff';
+      const isPdf = format === 'pdf';
+      
+      // Показываем/скрываем опции TIFF
       tiffOptionsContainer.hidden = !isTiff;
       tiffLzwOption.hidden = !isTiff;
       tiffOptionsContainer.classList.toggle('hidden', !isTiff);
       tiffLzwOption.classList.toggle('hidden', !isTiff);
+      
+      // Показываем/скрываем опции PDF
+      pdfOptionsContainer.hidden = !isPdf;
+      pdfOptionsContainer.classList.toggle('hidden', !isPdf);
+      
       if (!isTiff) {
         tiffPpiSelect.value = '300';
         tiffQualitySelect.value = 'standard';
@@ -573,6 +590,11 @@
         tiffPpiSelect.value = '300';
         tiffQualitySelect.value = 'standard';
         tiffLzwCheckbox.checked = true;
+      }
+      
+      if (isPdf && !isApplyingPreferences) {
+        // Для PDF устанавливаем значение по умолчанию
+        pdfVersionSelect.value = '1.4';
       }
     }
 
@@ -598,6 +620,12 @@
     tiffLzwCheckbox.addEventListener('change', () => {
       if (!isApplyingPreferences) {
         post('update-preferences', { tiffLzw: tiffLzwCheckbox.checked });
+      }
+    });
+
+    pdfVersionSelect.addEventListener('change', () => {
+      if (!isApplyingPreferences) {
+        post('update-preferences', { pdfVersion: pdfVersionSelect.value });
       }
     });
 
@@ -1209,7 +1237,8 @@
         ppi,
         serverUrl,
         tiffLzw,
-        tiffQuality
+        tiffQuality,
+        pdfVersion
       } = options;
       let endpoint;
       try {
@@ -1221,7 +1250,7 @@
       const formData = new FormData();
       formData.append('format', format);
       formData.append('ppi', ppi);
-      formData.append('pdfVersion', '1.4');
+      formData.append('pdfVersion', pdfVersion || '1.4');
       formData.append('pdfStandard', 'none');
       formData.append('pdfColorProfile', 'coated_fogra39');
       formData.append('tiffLzw', tiffLzw ? 'true' : 'false');
@@ -1288,7 +1317,8 @@
         useServer,
         serverUrl,
         tiffLzw,
-        tiffQuality
+        tiffQuality,
+        pdfVersion
       } = message;
 
       if (!serverUrl) {
@@ -1303,7 +1333,8 @@
             ppi,
             serverUrl,
             tiffLzw: !!tiffLzw,
-            tiffQuality: tiffQuality || 'standard'
+            tiffQuality: tiffQuality || 'standard',
+            pdfVersion: pdfVersion || '1.4'
           });
           const exportName = items[0].name || 'combined';
           await saveBlob(resultBlob, `${exportName}.pdf`);
@@ -1317,7 +1348,8 @@
                 ppi,
                 serverUrl,
                 tiffLzw: !!tiffLzw,
-                tiffQuality: tiffQuality || 'standard'
+                tiffQuality: tiffQuality || 'standard',
+                pdfVersion: pdfVersion || '1.4'
               });
               const extension = format === 'pdf' ? 'pdf' : 'tif';
               await saveBlob(resultBlob, `${exportName}.${extension}`);
@@ -1681,6 +1713,7 @@
       payload.useServer = true;
       if (exportFormat === 'pdf') {
         payload.ppi = basePpi;
+        payload.pdfVersion = pdfVersionSelect.value || '1.4';
         payload.tiffLzw = false;
         payload.tiffQuality = 'standard';
       } else {

@@ -505,6 +505,7 @@ async function exportSelection(settings) {
     throw new Error('Не удалось экспортировать выделенные объекты.');
   }
   const effectivePpi = requestedPpi;
+  const pdfVersion = settings && typeof settings.pdfVersion === 'string' ? settings.pdfVersion : '1.4';
   return {
     items: exported,
     format: exportFormat,
@@ -512,7 +513,8 @@ async function exportSelection(settings) {
     useServer: true,
     serverUrl,
     tiffLzw: exportFormat === 'tiff' && useTiffLzw,
-    tiffQuality: exportFormat === 'tiff' ? tiffQuality : 'standard'
+    tiffQuality: exportFormat === 'tiff' ? tiffQuality : 'standard',
+    pdfVersion: exportFormat === 'pdf' ? pdfVersion : '1.4'
   };
 }
 
