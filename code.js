@@ -439,8 +439,13 @@ async function exportSelection(settings) {
     const bounds = node.absoluteRenderBounds;
     const baseWidth = bounds ? bounds.width : (node.width || 0);
     const baseHeight = bounds ? bounds.height : (node.height || 0);
-    const widthPx = Math.max(1, Math.round(baseWidth * exportScale));
-    const heightPx = Math.max(1, Math.round(baseHeight * exportScale));
+    // Для TIFF используем точные размеры без округления, для PDF - с масштабированием
+    const widthPx = exportFormat === 'tiff' 
+      ? Math.floor(baseWidth)
+      : Math.max(1, Math.round(baseWidth * exportScale));
+    const heightPx = exportFormat === 'tiff'
+      ? Math.floor(baseHeight)
+      : Math.max(1, Math.round(baseHeight * exportScale));
     exported.push({
       name: baseName,
       data: bytes,

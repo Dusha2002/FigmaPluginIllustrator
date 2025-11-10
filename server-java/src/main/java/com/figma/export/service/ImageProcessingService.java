@@ -65,6 +65,10 @@ public class ImageProcessingService {
         BufferedImage result = new BufferedImage(targetWidth, targetHeight, source.getType());
         Graphics2D graphics = result.createGraphics();
         try {
+            // Используем высококачественные настройки рендеринга
+            graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            graphics.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING, java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+            graphics.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
             graphics.drawImage(source, 0, 0, targetWidth, targetHeight, null);
         } finally {
             graphics.dispose();

@@ -48,6 +48,7 @@ public class ExportService {
     private static final String FORMAT_PDF = "pdf";
     private static final String FORMAT_TIFF = "tiff";
     private static final int DEFAULT_DPI = 72;
+    private static final int DEFAULT_TIFF_PPI = 300;
     private static final double PX_TO_POINT = 72d / DEFAULT_DPI;
     private static final int MAX_TIFF_DIMENSION = 6000;
     private static final long MAX_TIFF_TOTAL_PIXELS = 36_000_000L;
@@ -125,7 +126,7 @@ public class ExportService {
 
     private ExportResponse convertToTiff(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
         long startNs = System.nanoTime();
-        int ppi = Math.max(request.getDpi(), DEFAULT_DPI);
+        int ppi = request.getDpi() > 0 ? request.getDpi() : DEFAULT_TIFF_PPI;
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         if (uploadType != UploadType.IMAGE) {
             throw new ConversionException("Для экспорта TIFF принимаются только PNG-изображения.");
