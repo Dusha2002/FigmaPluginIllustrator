@@ -157,8 +157,22 @@ public class ExportService {
             targetHeight = limitedSize[1];
         }
 
-        if (sourceImage.getWidth() != targetWidth || sourceImage.getHeight() != targetHeight) {
-            sourceImage = imageProcessingService.scaleImage(sourceImage, targetWidth, targetHeight, textHint);
+        boolean supersample = TIFF_QUALITY_SUPERSAMPLE.equals(tiffQuality);
+        if (supersample) {
+            long supersamplePixels = (long) targetWidth * 2 * (long) targetHeight * 2;
+            if (targetWidth * 2 > MAX_TIFF_DIMENSION
+                    || targetHeight * 2 > MAX_TIFF_DIMENSION
+                    || supersamplePixels > MAX_TIFF_TOTAL_PIXELS) {
+                logger.info("Supersample требует изображение {}x{}, превышающее лимиты. Используется стандартное качество.", targetWidth * 2, targetHeight * 2);
+                supersample = false;
+            }
+        }
+
+        int workWidth = supersample ? targetWidth * 2 : targetWidth;
+        int workHeight = supersample ? targetHeight * 2 : targetHeight;
+
+        if (sourceImage.getWidth() != workWidth || sourceImage.getHeight() != workHeight) {
+            sourceImage = imageProcessingService.scaleImage(sourceImage, workWidth, workHeight, textHint);
             logTiffStage("scaled", baseName, sourceImage);
         }
 
@@ -176,6 +190,13 @@ public class ExportService {
         logTiffStage("cmyk", baseName, cmyk);
         flushIfDifferent(flattened, cmyk);
         flattened = null;
+
+        if (supersample && (cmyk.getWidth() != targetWidth || cmyk.getHeight() != targetHeight)) {
+            BufferedImage downscaled = imageProcessingService.scaleImage(cmyk, targetWidth, targetHeight, textHint);
+            logTiffStage("downscaled", baseName, downscaled);
+            flushIfDifferent(cmyk, downscaled);
+            cmyk = downscaled;
+        }
 
         byte[] tiffBytes = tiffWriter.write(cmyk, ppi, useLzw);
         flushIfDifferent(cmyk, null);

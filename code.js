@@ -422,7 +422,7 @@ async function exportSelection(settings) {
     ? settings.serverUrl
     : (typeof DEFAULT_SERVER_URL === 'undefined' ? '' : DEFAULT_SERVER_URL);
   const exportScale = exportFormat === 'tiff'
-    ? (tiffQuality === 'supersample' ? 2 : 1) * (requestedPpi / DEFAULT_PPI)
+    ? (requestedPpi / DEFAULT_PPI)
     : Math.max(requestedPpi / basePpi, 0.01);
   const selection = figma.currentPage.selection;
   if (selection.length === 0) {
