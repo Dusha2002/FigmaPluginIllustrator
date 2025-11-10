@@ -162,6 +162,11 @@ public class ExportService {
                     String pdfVersion = request.getPdfVersion();
                     applyPdfDefaults(sourceDocument, colorProfile, pdfVersion);
                     
+                    // Принудительно устанавливаем версию перед сохранением
+                    float finalVersion = parsePdfVersion(pdfVersion);
+                    sourceDocument.setVersion(finalVersion);
+                    logger.info("Финальная версия PDF элемента {} перед сохранением: {}", i, finalVersion);
+                    
                     // Сохраняем готовый документ
                     ByteArrayOutputStream tempStream = new ByteArrayOutputStream();
                     sourceDocument.save(tempStream);
@@ -202,7 +207,9 @@ public class ExportService {
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
         
-        logger.info("Конвертация в PDF: baseName={}, uploadType={}, dpi={}", baseName, uploadType, dpi);
+        String requestedPdfVersion = request.getPdfVersion();
+        logger.info("Конвертация в PDF: baseName={}, uploadType={}, dpi={}, requestedVersion={}", 
+            baseName, uploadType, dpi, requestedPdfVersion);
         
         PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi, colorProfile);
         PDDocument sourceDocument = sourceResult.document();
@@ -220,6 +227,13 @@ public class ExportService {
 
             String pdfVersion = request.getPdfVersion();
             applyPdfDefaults(workingDocument, colorProfile, pdfVersion);
+            
+            // Принудительно устанавливаем версию ещё раз перед сохранением
+            // т.к. некоторые операции PDFBox могут её изменить
+            float finalVersion = parsePdfVersion(pdfVersion);
+            workingDocument.setVersion(finalVersion);
+            logger.info("Финальная версия PDF перед сохранением: {}", finalVersion);
+            
             byte[] pdfBytes = saveDocument(workingDocument);
             
             logger.info("PDF создан: size={} bytes ({} МБ)", 
@@ -468,8 +482,9 @@ public class ExportService {
 
     private void applyPdfDefaults(PDDocument document, ColorProfile profile, String pdfVersion) throws IOException {
         float version = parsePdfVersion(pdfVersion);
+        logger.info("Запрошенная версия PDF: {}, текущая версия документа: {}", version, document.getVersion());
         document.setVersion(version);
-        logger.info("Установлена версия PDF: {}", version);
+        logger.info("Версия PDF установлена в: {}", version);
         PDDocumentInformation information = document.getDocumentInformation();
         if (information == null) {
             information = new PDDocumentInformation();
@@ -497,8 +512,10 @@ public class ExportService {
     }
 
     private byte[] saveDocument(PDDocument document) throws IOException {
+        logger.info("Сохранение документа, версия перед сохранением: {}", document.getVersion());
         try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             document.save(output);
+            logger.info("Документ сохранён");
             return output.toByteArray();
         }
     }
