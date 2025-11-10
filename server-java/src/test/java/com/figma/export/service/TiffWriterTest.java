@@ -79,6 +79,24 @@ class TiffWriterTest {
         assertEquals(5, entries.get(259).value, "Compression должен быть LZW (5)");
     }
 
+    @Test
+    void applyCommonHintsDoesNotThrow() {
+        BufferedImage source = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2d = source.createGraphics();
+        try {
+            g2d.setColor(Color.BLACK);
+            g2d.drawString("Test", 4, 16);
+        } finally {
+            g2d.dispose();
+        }
+
+        BufferedImage flattened = imageProcessingService.flattenTransparency(source, Color.WHITE, true);
+        assertNotNull(flattened);
+
+        BufferedImage scaled = imageProcessingService.scaleImage(flattened, 64, 64, true);
+        assertNotNull(scaled);
+    }
+
     @BeforeEach
     void setUp() {
         writer = new TiffWriter(new ImageResolutionMetadata());

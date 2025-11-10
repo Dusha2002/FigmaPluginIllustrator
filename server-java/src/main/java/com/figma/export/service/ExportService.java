@@ -52,6 +52,9 @@ public class ExportService {
     private static final double PX_TO_POINT = 72d / DEFAULT_PPI;
     private static final int MAX_TIFF_DIMENSION = 6000;
     private static final long MAX_TIFF_TOTAL_PIXELS = 36_000_000L;
+    private static final String TIFF_QUALITY_STANDARD = "standard";
+    private static final String TIFF_QUALITY_SUPERSAMPLE = "supersample";
+    private static final String TIFF_QUALITY_TEXT_HINT = "texthint";
 
     private final SvgRenderer svgRenderer;
     private final ImageProcessingService imageProcessingService;
@@ -129,6 +132,14 @@ public class ExportService {
         int ppi = request.getPpi() > 0 ? request.getPpi() : DEFAULT_TIFF_PPI;
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         boolean useLzw = request.isTiffLzw();
+        String requestedQuality = request.getTiffQuality();
+        String tiffQuality = requestedQuality != null ? requestedQuality.toLowerCase(Locale.ROOT) : TIFF_QUALITY_STANDARD;
+        if (!TIFF_QUALITY_STANDARD.equals(tiffQuality)
+                && !TIFF_QUALITY_SUPERSAMPLE.equals(tiffQuality)
+                && !TIFF_QUALITY_TEXT_HINT.equals(tiffQuality)) {
+            tiffQuality = TIFF_QUALITY_STANDARD;
+        }
+        boolean textHint = TIFF_QUALITY_TEXT_HINT.equals(tiffQuality);
         if (uploadType != UploadType.IMAGE) {
             throw new ConversionException("Для экспорта TIFF принимаются только PNG-изображения.");
         }
@@ -147,7 +158,7 @@ public class ExportService {
         }
 
         if (sourceImage.getWidth() != targetWidth || sourceImage.getHeight() != targetHeight) {
-            sourceImage = imageProcessingService.scaleImage(sourceImage, targetWidth, targetHeight);
+            sourceImage = imageProcessingService.scaleImage(sourceImage, targetWidth, targetHeight, textHint);
             logTiffStage("scaled", baseName, sourceImage);
         }
 
@@ -156,7 +167,7 @@ public class ExportService {
         flushIfDifferent(sourceImage, argb);
         sourceImage = null;
 
-        BufferedImage flattened = imageProcessingService.flattenTransparency(argb, Color.WHITE);
+        BufferedImage flattened = imageProcessingService.flattenTransparency(argb, Color.WHITE, textHint);
         logTiffStage("flattened", baseName, flattened);
         flushIfDifferent(argb, flattened);
         argb = null;
@@ -173,12 +184,13 @@ public class ExportService {
         long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
         double bytesMb = tiffBytes.length / (1024d * 1024d);
         logMemoryUsage("tiff-bytes", baseName, tiffBytes.length, null);
-        logger.info("TIFF экспорт завершён: name={}, размер={} байт ({}) МБ, ppi={}, compression={}, время={} мс",
+        logger.info("TIFF экспорт завершён: name={}, размер={} байт ({}) МБ, ppi={}, compression={}, quality={}, время={} мс",
                 baseName,
                 tiffBytes.length,
                 String.format(Locale.ROOT, "%.2f", bytesMb),
                 ppi,
                 useLzw ? "LZW" : "NONE",
+                tiffQuality,
                 elapsedMs);
 
         ContentDisposition disposition = ContentDisposition.attachment()

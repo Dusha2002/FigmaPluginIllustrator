@@ -25,6 +25,9 @@ public class ExportRequest {
 
     private boolean tiffLzw;
 
+    @Pattern(regexp = "(?i)standard|supersample|texthint", message = "tiffQuality должен быть standard, supersample или texthint")
+    private String tiffQuality;
+
     public String getFormat() {
         return format;
     }
@@ -71,5 +74,13 @@ public class ExportRequest {
 
     public void setTiffLzw(boolean tiffLzw) {
         this.tiffLzw = tiffLzw;
+    }
+
+    public String getTiffQuality() {
+        return tiffQuality;
+    }
+
+    public void setTiffQuality(String tiffQuality) {
+        this.tiffQuality = tiffQuality;
     }
 }

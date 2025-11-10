@@ -405,13 +405,16 @@ async function exportSelection(settings) {
   const requestedPpi = settings && typeof settings.ppi === 'number'
     ? Math.max(settings.ppi, 1)
     : basePpi;
+  const tiffQuality = settings && typeof settings.tiffQuality === 'string'
+    ? settings.tiffQuality
+    : 'standard';
   const useTiffLzw = !!(settings && settings.tiffLzw);
   const useServer = true;
   const serverUrl = settings && typeof settings.serverUrl === 'string' && settings.serverUrl.trim().length > 0
     ? settings.serverUrl
     : (typeof DEFAULT_SERVER_URL === 'undefined' ? '' : DEFAULT_SERVER_URL);
   const exportScale = exportFormat === 'tiff'
-    ? 1
+    ? (tiffQuality === 'supersample' ? 2 : 1)
     : Math.max(requestedPpi / basePpi, 0.01);
   const selection = figma.currentPage.selection;
   if (selection.length === 0) {
@@ -464,7 +467,8 @@ async function exportSelection(settings) {
     ppi: effectivePpi,
     useServer: true,
     serverUrl,
-    tiffLzw: useTiffLzw
+    tiffLzw: exportFormat === 'tiff' && useTiffLzw,
+    tiffQuality: exportFormat === 'tiff' ? tiffQuality : 'standard'
   };
 }
 
@@ -504,7 +508,8 @@ figma.ui.onmessage = async (message) => {
           ppi: result.ppi,
           useServer: result.useServer,
           serverUrl: result.serverUrl,
-          tiffLzw: result.tiffLzw
+          tiffLzw: result.tiffLzw,
+          tiffQuality: result.tiffQuality
         });
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : 'Ошибка экспорта.';

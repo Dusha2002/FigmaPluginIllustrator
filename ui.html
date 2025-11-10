@@ -487,15 +487,16 @@
             <option value="tiff">TIFF</option>
           </select>
         </label>
-
-        <p class="muted" id="export-hint">
-          PDF экспортируется с профилем Coated FOGRA39 и версией 1.4. TIFF создаётся без сжатия и с фиксированным 72&nbsp;ppi.
-        </p>
       </div>
-      <div class="stack">
-        <label class="checkbox" id="tiff-lzw-option" hidden>
+      <div class="stack" id="tiff-options" hidden>
+        <select id="tiff-quality" aria-label="Настройки сглаживания TIFF">
+          <option value="standard" selected>Стандартное качество</option>
+          <option value="supersample">Лучшее качество объектов (суперсэмплинг)</option>
+          <option value="texthint">Лучшее качество текста (хинтовка)</option>
+        </select>
+        <label class="checkbox" id="tiff-lzw-option">
           <input id="tiff-lzw" type="checkbox" />
-          TIFF LZW-сжатие
+          LZW-сжатие
         </label>
       </div>
       <div class="panel-footer">
@@ -520,6 +521,8 @@
     const exportButton = document.getElementById('export-cmyk');
     const formatSelect = document.getElementById('export-format');
     const pdfOptionsBlock = null;
+    const tiffOptionsContainer = document.getElementById('tiff-options');
+    const tiffQualitySelect = document.getElementById('tiff-quality');
     const tiffLzwOption = document.getElementById('tiff-lzw-option');
     const tiffLzwCheckbox = document.getElementById('tiff-lzw');
     const pdfVersionSelect = null;
@@ -551,9 +554,13 @@
     function updateFormatSpecificOptions() {
       const format = formatSelect.value;
       const isTiff = format === 'tiff';
+      tiffOptionsContainer.hidden = !isTiff;
       tiffLzwOption.hidden = !isTiff;
+      tiffOptionsContainer.classList.toggle('hidden', !isTiff);
+      tiffLzwOption.classList.toggle('hidden', !isTiff);
       if (!isTiff) {
         tiffLzwCheckbox.checked = false;
+        tiffQualitySelect.value = 'standard';
       }
     }
 
@@ -1168,7 +1175,8 @@
         format,
         ppi,
         serverUrl,
-        tiffLzw
+        tiffLzw,
+        tiffQuality
       } = options;
       let endpoint;
       try {
@@ -1193,6 +1201,7 @@
       formData.append('pdfStandard', 'none');
       formData.append('pdfColorProfile', 'coated_fogra39');
       formData.append('tiffLzw', tiffLzw ? 'true' : 'false');
+      formData.append('tiffQuality', tiffQuality || 'standard');
       formData.append('widthPx', item.widthPx || '');
       formData.append('heightPx', item.heightPx || '');
       formData.append('image', uploadBlob, `${item.name || 'export'}.${extension}`);
@@ -1224,7 +1233,8 @@
         ppi,
         useServer,
         serverUrl,
-        tiffLzw
+        tiffLzw,
+        tiffQuality
       } = message;
 
       for (const item of items) {
@@ -1238,7 +1248,8 @@
             format,
             ppi,
             serverUrl,
-            tiffLzw: !!tiffLzw
+            tiffLzw: !!tiffLzw,
+            tiffQuality: tiffQuality || 'standard'
           });
           const extension = format === 'pdf' ? 'pdf' : 'tif';
           await saveBlob(resultBlob, `${exportName}.${extension}`);
@@ -1585,9 +1596,11 @@
       if (exportFormat === 'pdf') {
         payload.ppi = basePpi;
         payload.tiffLzw = false;
+        payload.tiffQuality = 'standard';
       } else {
         payload.ppi = basePpi;
         payload.tiffLzw = !!tiffLzwCheckbox.checked;
+        payload.tiffQuality = tiffQualitySelect.value || 'standard';
       }
       post('export-cmyk', payload);
     });

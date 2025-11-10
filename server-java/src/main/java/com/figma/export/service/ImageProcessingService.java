@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.Transparency;
 import java.awt.color.ColorSpace;
 import java.awt.color.ICC_ColorSpace;
@@ -42,12 +43,17 @@ public class ImageProcessingService {
     }
 
     public BufferedImage flattenTransparency(BufferedImage source, Color background) {
+        return flattenTransparency(source, background, false);
+    }
+
+    public BufferedImage flattenTransparency(BufferedImage source, Color background, boolean textHint) {
         if (!source.getColorModel().hasAlpha()) {
             return source;
         }
         BufferedImage result = new BufferedImage(source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = result.createGraphics();
         try {
+            applyCommonHints(graphics, textHint);
             graphics.setComposite(AlphaComposite.Src);
             graphics.setColor(background);
             graphics.fillRect(0, 0, source.getWidth(), source.getHeight());
@@ -59,16 +65,17 @@ public class ImageProcessingService {
     }
 
     public BufferedImage scaleImage(BufferedImage source, int targetWidth, int targetHeight) {
+        return scaleImage(source, targetWidth, targetHeight, false);
+    }
+
+    public BufferedImage scaleImage(BufferedImage source, int targetWidth, int targetHeight, boolean textHint) {
         if (targetWidth <= 0 || targetHeight <= 0 || (source.getWidth() == targetWidth && source.getHeight() == targetHeight)) {
             return source;
         }
         BufferedImage result = new BufferedImage(targetWidth, targetHeight, source.getType());
         Graphics2D graphics = result.createGraphics();
         try {
-            // Используем высококачественные настройки рендеринга
-            graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-            graphics.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING, java.awt.RenderingHints.VALUE_RENDER_QUALITY);
-            graphics.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+            applyCommonHints(graphics, textHint);
             graphics.drawImage(source, 0, 0, targetWidth, targetHeight, null);
         } finally {
             graphics.dispose();
@@ -109,5 +116,17 @@ public class ImageProcessingService {
             graphics.dispose();
         }
         return result;
+    }
+
+    private void applyCommonHints(Graphics2D graphics, boolean textHint) {
+        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        graphics.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
+        graphics.setRenderingHint(RenderingHints.KEY_COLOR_RENDERING, RenderingHints.VALUE_COLOR_RENDER_QUALITY);
+        if (textHint) {
+            graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            graphics.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+        }
     }
 }
