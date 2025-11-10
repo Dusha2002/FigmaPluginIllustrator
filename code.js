@@ -405,6 +405,7 @@ async function exportSelection(settings) {
   const requestedPpi = settings && typeof settings.ppi === 'number'
     ? Math.max(settings.ppi, 1)
     : basePpi;
+  const useTiffLzw = !!(settings && settings.tiffLzw);
   const useServer = true;
   const serverUrl = settings && typeof settings.serverUrl === 'string' && settings.serverUrl.trim().length > 0
     ? settings.serverUrl
@@ -462,7 +463,8 @@ async function exportSelection(settings) {
     format: exportFormat,
     ppi: effectivePpi,
     useServer: true,
-    serverUrl
+    serverUrl,
+    tiffLzw: useTiffLzw
   };
 }
 
@@ -501,7 +503,8 @@ figma.ui.onmessage = async (message) => {
           format: result.format,
           ppi: result.ppi,
           useServer: result.useServer,
-          serverUrl: result.serverUrl
+          serverUrl: result.serverUrl,
+          tiffLzw: result.tiffLzw
         });
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : 'Ошибка экспорта.';

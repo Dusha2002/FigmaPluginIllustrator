@@ -35,55 +35,78 @@ public class TiffWriter {
     }
 
     public byte[] write(BufferedImage image, int ppi) throws IOException {
+        return write(image, ppi, false);
+    }
+
+    public byte[] write(BufferedImage image, int ppi, boolean lzwCompression) throws IOException {
         if (image == null) {
             throw new IllegalArgumentException("image must not be null");
         }
         long startNs = System.nanoTime();
         if (logger.isInfoEnabled()) {
-            logger.info("TIFF write start: size={}x{}, ppi={}", image.getWidth(), image.getHeight(), ppi);
+            logger.info("TIFF write start: size={}x{}, ppi={}, compression={}",
+                    image.getWidth(), image.getHeight(), ppi, lzwCompression ? "LZW" : "NONE");
         }
-        
-        byte[] result = writeWithImageIO(image, ppi);
-        
+
+        byte[] result = writeWithImageIO(image, ppi, lzwCompression);
+
         if (logger.isInfoEnabled()) {
             long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
             logger.info("TIFF write finished: bytes={}, time={} мс", result.length, elapsedMs);
         }
         return result;
     }
-    
-    private byte[] writeWithImageIO(BufferedImage image, int ppi) throws IOException {
+
+    private byte[] writeWithImageIO(BufferedImage image, int ppi, boolean lzwCompression) throws IOException {
         ImageTypeSpecifier typeSpecifier = ImageTypeSpecifier.createFromRenderedImage(image);
         ImageWriter writer = selectSunTiffWriter();
         if (writer == null) {
             throw new IOException("Sun TIFF writer not found");
         }
-        
+
         try (ByteArrayOutputStream buffer = new ByteArrayOutputStream();
              ImageOutputStream ios = ImageIO.createImageOutputStream(buffer)) {
-            
+
             writer.setOutput(ios);
             ImageWriteParam writeParam = writer.getDefaultWriteParam();
-            
-            // Отключаем сжатие
+
             if (writeParam.canWriteCompressed()) {
-                writeParam.setCompressionMode(ImageWriteParam.MODE_DISABLED);
+                if (lzwCompression) {
+                    writeParam.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                    String[] types = writeParam.getCompressionTypes();
+                    boolean supportsLzw = false;
+                    if (types != null) {
+                        for (String type : types) {
+                            if ("LZW".equalsIgnoreCase(type)) {
+                                writeParam.setCompressionType(type);
+                                supportsLzw = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!supportsLzw) {
+                        logger.warn("LZW compression requested but not supported by writer. Falling back to no compression.");
+                        writeParam.setCompressionMode(ImageWriteParam.MODE_DISABLED);
+                    }
+                } else {
+                    writeParam.setCompressionMode(ImageWriteParam.MODE_DISABLED);
+                }
             }
-            
+
             // Получаем метаданные и встраиваем ICC профиль
             IIOMetadata metadata = writer.getDefaultImageMetadata(typeSpecifier, writeParam);
-            embedIccProfile(metadata, image, ppi);
-            
+            embedIccProfile(metadata, image, ppi, lzwCompression);
+
             // Записываем изображение
             writer.write(null, new IIOImage(image, null, metadata), writeParam);
             ios.flush();
-            
+
             return buffer.toByteArray();
         } finally {
             writer.dispose();
         }
     }
-    
+
     private ImageWriter selectSunTiffWriter() {
         Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("TIFF");
         while (writers.hasNext()) {
@@ -105,8 +128,8 @@ public class TiffWriter {
         }
         return null;
     }
-    
-    private void embedIccProfile(IIOMetadata metadata, BufferedImage image, int ppi) {
+
+    private void embedIccProfile(IIOMetadata metadata, BufferedImage image, int ppi, boolean lzwCompression) {
         try {
             // Используем ImageResolutionMetadata для встраивания resolution
             resolutionMetadata.apply(metadata, ppi);
@@ -114,6 +137,7 @@ public class TiffWriter {
             // Добавляем ICC профиль через нативный формат
             String nativeFormat = metadata.getNativeMetadataFormatName();
             if (nativeFormat != null && nativeFormat.contains("tiff")) {
+                addCompression(metadata, nativeFormat, lzwCompression);
                 ColorSpace colorSpace = image.getColorModel().getColorSpace();
                 if (colorSpace instanceof ICC_ColorSpace iccColorSpace) {
                     ICC_Profile profile = iccColorSpace.getProfile();
@@ -126,7 +150,66 @@ public class TiffWriter {
             logger.warn("Failed to embed ICC profile in TIFF metadata", e);
         }
     }
-    
+
+    private void addCompression(IIOMetadata metadata, String nativeFormat, boolean lzwCompression) {
+        try {
+            org.w3c.dom.Node root = metadata.getAsTree(nativeFormat);
+            org.w3c.dom.NodeList children = root.getChildNodes();
+            org.w3c.dom.Node ifd = null;
+            for (int i = 0; i < children.getLength(); i++) {
+                org.w3c.dom.Node child = children.item(i);
+                if ("TIFFIFD".equals(child.getNodeName())) {
+                    ifd = child;
+                    break;
+                }
+            }
+            if (ifd == null) {
+                return;
+            }
+
+            org.w3c.dom.Document doc = root instanceof org.w3c.dom.Document
+                    ? (org.w3c.dom.Document) root
+                    : root.getOwnerDocument();
+            if (doc == null) {
+                return;
+            }
+
+            org.w3c.dom.Element field = null;
+            org.w3c.dom.NodeList ifdChildren = ifd.getChildNodes();
+            for (int i = 0; i < ifdChildren.getLength(); i++) {
+                org.w3c.dom.Node child = ifdChildren.item(i);
+                if (child instanceof org.w3c.dom.Element element
+                        && "TIFFField".equals(element.getNodeName())
+                        && "259".equals(element.getAttribute("number"))) {
+                    field = element;
+                    break;
+                }
+            }
+
+            if (field == null) {
+                field = doc.createElement("TIFFField");
+                field.setAttribute("number", "259");
+                field.setAttribute("name", "Compression");
+                ifd.appendChild(field);
+            } else {
+                while (field.hasChildNodes()) {
+                    field.removeChild(field.getFirstChild());
+                }
+            }
+
+            org.w3c.dom.Element shorts = doc.createElement("TIFFShorts");
+            org.w3c.dom.Element value = doc.createElement("TIFFShort");
+            // 1 = none, 5 = LZW
+            value.setAttribute("value", lzwCompression ? "5" : "1");
+            shorts.appendChild(value);
+            field.appendChild(shorts);
+
+            metadata.setFromTree(nativeFormat, root);
+        } catch (Exception e) {
+            logger.warn("Failed to set compression metadata", e);
+        }
+    }
+
     private void addIccProfileToMetadata(IIOMetadata metadata, String nativeFormat, byte[] iccData) {
         try {
             org.w3c.dom.Node root = metadata.getAsTree(nativeFormat);
@@ -140,17 +223,22 @@ public class TiffWriter {
                     break;
                 }
             }
-            
+
             if (ifd != null) {
                 // Создаём TIFFField для ICC профиля (тег 34675)
-                org.w3c.dom.Document doc = root.getOwnerDocument();
+                org.w3c.dom.Document doc = root instanceof org.w3c.dom.Document
+                        ? (org.w3c.dom.Document) root
+                        : root.getOwnerDocument();
+                if (doc == null) {
+                    return;
+                }
                 org.w3c.dom.Element field = doc.createElement("TIFFField");
                 field.setAttribute("number", "34675");
                 field.setAttribute("name", "ICC Profile");
-                
+
                 org.w3c.dom.Element undefineds = doc.createElement("TIFFUndefineds");
                 org.w3c.dom.Element undefined = doc.createElement("TIFFUndefined");
-                
+
                 // Конвертируем байты в строку Base64 или используем другой формат
                 StringBuilder sb = new StringBuilder();
                 for (byte b : iccData) {
@@ -158,11 +246,10 @@ public class TiffWriter {
                     sb.append(b & 0xFF);
                 }
                 undefined.setAttribute("value", sb.toString());
-                
+
                 undefineds.appendChild(undefined);
                 field.appendChild(undefineds);
                 ifd.appendChild(field);
-                
                 metadata.setFromTree(nativeFormat, root);
             }
         } catch (Exception e) {

@@ -23,6 +23,8 @@ public class ExportRequest {
     @Min(1)
     private Integer heightPx;
 
+    private boolean tiffLzw;
+
     public String getFormat() {
         return format;
     }
@@ -61,5 +63,13 @@ public class ExportRequest {
 
     public void setHeightPx(Integer heightPx) {
         this.heightPx = heightPx;
+    }
+
+    public boolean isTiffLzw() {
+        return tiffLzw;
+    }
+
+    public void setTiffLzw(boolean tiffLzw) {
+        this.tiffLzw = tiffLzw;
     }
 }

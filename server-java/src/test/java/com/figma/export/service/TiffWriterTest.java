@@ -31,6 +31,54 @@ class TiffWriterTest {
         ImageIO.scanForPlugins();
     }
 
+    @Test
+    void writeWithLzwCompressionSetsCompressionTag() throws IOException {
+        BufferedImage source = new BufferedImage(64, 64, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g2d = source.createGraphics();
+        try {
+            g2d.setColor(Color.BLUE);
+            g2d.fillRect(0, 0, 64, 64);
+        } finally {
+            g2d.dispose();
+        }
+
+        BufferedImage cmyk = imageProcessingService.convertToCmyk(source);
+        byte[] bytes = writer.write(cmyk, 300, true);
+
+        assertNotNull(bytes);
+        assertTrue(bytes.length > 0);
+
+        ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        byte byte1 = buffer.get();
+        byte byte2 = buffer.get();
+        if (byte1 == 0x49 && byte2 == 0x49) {
+            buffer.order(ByteOrder.LITTLE_ENDIAN);
+        } else if (byte1 == 0x4D && byte2 == 0x4D) {
+            buffer.order(ByteOrder.BIG_ENDIAN);
+        } else {
+            fail("Invalid TIFF header");
+        }
+
+        buffer.position(buffer.getInt(4));
+        int entryCount = buffer.getShort() & 0xFFFF;
+        Map<Integer, TiffEntryView> entries = new HashMap<>();
+        for (int i = 0; i < entryCount; i++) {
+            int tag = buffer.getShort() & 0xFFFF;
+            int type = buffer.getShort() & 0xFFFF;
+            int count = buffer.getInt();
+            long valueOrOffset = buffer.getInt() & 0xFFFFFFFFL;
+            long actualValue = valueOrOffset;
+            if (type == 3 && count == 1) {
+                actualValue = (valueOrOffset >> (buffer.order() == ByteOrder.LITTLE_ENDIAN ? 0 : 16)) & 0xFFFF;
+            } else if (type == 4 && count == 1) {
+                actualValue = valueOrOffset;
+            }
+            entries.put(tag, new TiffEntryView(tag, type, count, actualValue));
+        }
+
+        assertEquals(5, entries.get(259).value, "Compression должен быть LZW (5)");
+    }
+
     @BeforeEach
     void setUp() {
         writer = new TiffWriter(new ImageResolutionMetadata());
@@ -104,10 +152,12 @@ class TiffWriterTest {
         assertTrue(entries.containsKey(257), "ImageLength должен присутствовать");
         assertTrue(entries.containsKey(277), "SamplesPerPixel должен присутствовать");
         assertTrue(entries.containsKey(262), "PhotometricInterpretation должен присутствовать");
-        
+        assertTrue(entries.containsKey(259), "Compression должен присутствовать");
+
         assertEquals(120, entries.get(256).value, "ImageWidth");
         assertEquals(80, entries.get(257).value, "ImageLength");
         assertEquals(5, entries.get(262).value, "PhotometricInterpretation должен быть CMYK (5)");
+        assertEquals(1, entries.get(259).value, "Compression должен быть None (1)");
 
         // Убеждаемся, что TIFF можно прочитать стандартным ImageIO
         try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {

@@ -128,6 +128,7 @@ public class ExportService {
         long startNs = System.nanoTime();
         int ppi = request.getPpi() > 0 ? request.getPpi() : DEFAULT_TIFF_PPI;
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
+        boolean useLzw = request.isTiffLzw();
         if (uploadType != UploadType.IMAGE) {
             throw new ConversionException("Для экспорта TIFF принимаются только PNG-изображения.");
         }
@@ -165,18 +166,19 @@ public class ExportService {
         flushIfDifferent(flattened, cmyk);
         flattened = null;
 
-        byte[] tiffBytes = tiffWriter.write(cmyk, ppi);
+        byte[] tiffBytes = tiffWriter.write(cmyk, ppi, useLzw);
         flushIfDifferent(cmyk, null);
         cmyk = null;
 
         long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
         double bytesMb = tiffBytes.length / (1024d * 1024d);
         logMemoryUsage("tiff-bytes", baseName, tiffBytes.length, null);
-        logger.info("TIFF экспорт завершён: name={}, размер={} байт ({}) МБ, dpi={}, время={} мс",
+        logger.info("TIFF экспорт завершён: name={}, размер={} байт ({}) МБ, ppi={}, compression={}, время={} мс",
                 baseName,
                 tiffBytes.length,
                 String.format(Locale.ROOT, "%.2f", bytesMb),
                 ppi,
+                useLzw ? "LZW" : "NONE",
                 elapsedMs);
 
         ContentDisposition disposition = ContentDisposition.attachment()

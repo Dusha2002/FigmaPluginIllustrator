@@ -492,6 +492,12 @@
           PDF экспортируется с профилем Coated FOGRA39 и версией 1.4. TIFF создаётся без сжатия и с фиксированным 72&nbsp;ppi.
         </p>
       </div>
+      <div class="stack">
+        <label class="checkbox" id="tiff-lzw-option" hidden>
+          <input id="tiff-lzw" type="checkbox" />
+          TIFF LZW-сжатие
+        </label>
+      </div>
       <div class="panel-footer">
         <button id="export-cmyk">Экспортировать</button>
       </div>
@@ -514,7 +520,8 @@
     const exportButton = document.getElementById('export-cmyk');
     const formatSelect = document.getElementById('export-format');
     const pdfOptionsBlock = null;
-    const tiffOptionsBlock = null;
+    const tiffLzwOption = document.getElementById('tiff-lzw-option');
+    const tiffLzwCheckbox = document.getElementById('tiff-lzw');
     const pdfVersionSelect = null;
     const pdfStandardSelect = null;
     const pdfColorProfileSelect = null;
@@ -540,6 +547,21 @@
     let manualThemeOverride = null;
     let isApplyingPreferences = false;
     let settingsExpanded = false;
+
+    function updateFormatSpecificOptions() {
+      const format = formatSelect.value;
+      const isTiff = format === 'tiff';
+      tiffLzwOption.hidden = !isTiff;
+      if (!isTiff) {
+        tiffLzwCheckbox.checked = false;
+      }
+    }
+
+    formatSelect.addEventListener('change', () => {
+      updateFormatSpecificOptions();
+    });
+
+    updateFormatSpecificOptions();
 
     function post(type, payload) {
       const message = { type };
@@ -1145,12 +1167,8 @@
       const {
         format,
         ppi,
-        pdfVersion,
-        pdfStandard,
-        pdfColorProfile,
-        tiffCompression,
-        tiffAntialias,
-        serverUrl
+        serverUrl,
+        tiffLzw
       } = options;
       let endpoint;
       try {
@@ -1174,8 +1192,7 @@
       formData.append('pdfVersion', '1.4');
       formData.append('pdfStandard', 'none');
       formData.append('pdfColorProfile', 'coated_fogra39');
-      formData.append('tiffCompression', 'none');
-      formData.append('tiffAntialias', 'none');
+      formData.append('tiffLzw', tiffLzw ? 'true' : 'false');
       formData.append('widthPx', item.widthPx || '');
       formData.append('heightPx', item.heightPx || '');
       formData.append('image', uploadBlob, `${item.name || 'export'}.${extension}`);
@@ -1206,7 +1223,8 @@
         format,
         ppi,
         useServer,
-        serverUrl
+        serverUrl,
+        tiffLzw
       } = message;
 
       for (const item of items) {
@@ -1219,7 +1237,8 @@
           const resultBlob = await exportViaServer(item, {
             format,
             ppi,
-            serverUrl
+            serverUrl,
+            tiffLzw: !!tiffLzw
           });
           const extension = format === 'pdf' ? 'pdf' : 'tif';
           await saveBlob(resultBlob, `${exportName}.${extension}`);
@@ -1565,8 +1584,10 @@
       payload.useServer = true;
       if (exportFormat === 'pdf') {
         payload.ppi = basePpi;
+        payload.tiffLzw = false;
       } else {
         payload.ppi = basePpi;
+        payload.tiffLzw = !!tiffLzwCheckbox.checked;
       }
       post('export-cmyk', payload);
     });
