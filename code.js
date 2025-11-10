@@ -407,6 +407,35 @@ async function handlePositionUpdate(positionMm) {
   sendSelectionInfo();
 }
 
+function isVectorNode(node) {
+  // Растровые типы: IMAGE
+  if (node.type === 'IMAGE') {
+    return false;
+  }
+  
+  // Векторные типы: VECTOR, LINE, ELLIPSE, POLYGON, STAR, RECTANGLE, TEXT, FRAME, GROUP
+  const vectorTypes = ['VECTOR', 'LINE', 'ELLIPSE', 'POLYGON', 'STAR', 'RECTANGLE', 'TEXT', 'FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'BOOLEAN_OPERATION'];
+  if (vectorTypes.includes(node.type)) {
+    return true;
+  }
+  
+  // Для остальных типов считаем векторными по умолчанию
+  return true;
+}
+
+function hasRasterEffects(node) {
+  // Проверяем наличие эффектов, которые требуют растеризации
+  if ('effects' in node && node.effects && node.effects.length > 0) {
+    const rasterEffects = node.effects.filter(effect => 
+      effect.visible && (effect.type === 'DROP_SHADOW' || effect.type === 'INNER_SHADOW' || effect.type === 'LAYER_BLUR' || effect.type === 'BACKGROUND_BLUR')
+    );
+    if (rasterEffects.length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function exportSelection(settings) {
   const exportFormat = settings && typeof settings.format === 'string' ? settings.format : 'pdf';
   const basePpi = DEFAULT_PPI;
@@ -434,7 +463,13 @@ async function exportSelection(settings) {
     if (!('exportAsync' in node)) {
       continue;
     }
-    const exportSettings = exportFormat === 'pdf'
+    
+    // Определяем, векторный ли элемент
+    const isVector = isVectorNode(node) && !hasRasterEffects(node);
+    
+    // Для PDF: векторные элементы экспортируем как SVG, растровые как PNG
+    // Для TIFF: всё экспортируем как PNG
+    const exportSettings = (exportFormat === 'pdf' && isVector)
       ? {
         format: 'SVG',
         useAbsoluteBounds: true
@@ -443,7 +478,7 @@ async function exportSelection(settings) {
         format: 'PNG',
         useAbsoluteBounds: true
       };
-    if (exportFormat !== 'pdf' && Math.abs(exportScale - 1) > 0.0001) {
+    if (exportSettings.format === 'PNG' && Math.abs(exportScale - 1) > 0.0001) {
       exportSettings.constraint = { type: 'SCALE', value: exportScale };
     }
     const bytes = await node.exportAsync(exportSettings);
@@ -462,7 +497,8 @@ async function exportSelection(settings) {
       name: baseName,
       data: bytes,
       widthPx,
-      heightPx
+      heightPx,
+      isVector: exportSettings.format === 'SVG'
     });
   }
   if (exported.length === 0) {

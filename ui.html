@@ -1203,7 +1203,7 @@
       });
     }
 
-    async function exportViaServer(item, options) {
+    async function exportViaServer(items, options) {
       const {
         format,
         ppi,
@@ -1218,26 +1218,47 @@
         throw new Error('Некорректный URL сервера.');
       }
 
-      const binaryArray = item.data instanceof Uint8Array ? item.data : new Uint8Array(item.data);
-      const { blobType, extension } = (() => {
-        if (format === 'pdf') {
-          return { blobType: 'image/svg+xml', extension: 'svg' };
-        }
-        return { blobType: 'image/png', extension: 'png' };
-      })();
-      const uploadBlob = new Blob([binaryArray], { type: blobType });
       const formData = new FormData();
       formData.append('format', format);
-      formData.append('name', item.name || 'export');
       formData.append('ppi', ppi);
       formData.append('pdfVersion', '1.4');
       formData.append('pdfStandard', 'none');
       formData.append('pdfColorProfile', 'coated_fogra39');
       formData.append('tiffLzw', tiffLzw ? 'true' : 'false');
       formData.append('tiffQuality', tiffQuality || 'standard');
-      formData.append('widthPx', item.widthPx || '');
-      formData.append('heightPx', item.heightPx || '');
-      formData.append('image', uploadBlob, `${item.name || 'export'}.${extension}`);
+      
+      // Для PDF с несколькими элементами отправляем все файлы
+      if (format === 'pdf' && items.length > 1) {
+        // Используем имя первого элемента или 'combined'
+        formData.append('name', items[0].name || 'combined');
+        
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const binaryArray = item.data instanceof Uint8Array ? item.data : new Uint8Array(item.data);
+          const { blobType, extension } = item.isVector 
+            ? { blobType: 'image/svg+xml', extension: 'svg' }
+            : { blobType: 'image/png', extension: 'png' };
+          const uploadBlob = new Blob([binaryArray], { type: blobType });
+          
+          // Добавляем метаданные для каждого элемента
+          formData.append(`widthPx_${i}`, item.widthPx || '');
+          formData.append(`heightPx_${i}`, item.heightPx || '');
+          formData.append(`images`, uploadBlob, `${item.name || `element_${i}`}.${extension}`);
+        }
+      } else {
+        // Для TIFF или одиночного PDF отправляем один файл
+        const item = items[0];
+        formData.append('name', item.name || 'export');
+        formData.append('widthPx', item.widthPx || '');
+        formData.append('heightPx', item.heightPx || '');
+        
+        const binaryArray = item.data instanceof Uint8Array ? item.data : new Uint8Array(item.data);
+        const { blobType, extension } = (format === 'pdf' && item.isVector)
+          ? { blobType: 'image/svg+xml', extension: 'svg' }
+          : { blobType: 'image/png', extension: 'png' };
+        const uploadBlob = new Blob([binaryArray], { type: blobType });
+        formData.append('image', uploadBlob, `${item.name || 'export'}.${extension}`);
+      }
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -1270,26 +1291,45 @@
         tiffQuality
       } = message;
 
-      for (const item of items) {
-        const { name, data, widthPx, heightPx } = item;
-        const exportName = name || 'export';
-        try {
-          if (!serverUrl) {
-            throw new Error('Не указан адрес сервера конвертации.');
-          }
-          const resultBlob = await exportViaServer(item, {
+      if (!serverUrl) {
+        throw new Error('Не указан адрес сервера конвертации.');
+      }
+
+      try {
+        // Для PDF с несколькими элементами объединяем в один файл
+        if (format === 'pdf' && items.length > 1) {
+          const resultBlob = await exportViaServer(items, {
             format,
             ppi,
             serverUrl,
             tiffLzw: !!tiffLzw,
             tiffQuality: tiffQuality || 'standard'
           });
-          const extension = format === 'pdf' ? 'pdf' : 'tif';
-          await saveBlob(resultBlob, `${exportName}.${extension}`);
-        } catch (error) {
-          console.error('Ошибка обработки элемента', exportName, error);
-          alert(`Не удалось экспортировать «${exportName}»: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+          const exportName = items[0].name || 'combined';
+          await saveBlob(resultBlob, `${exportName}.pdf`);
+        } else {
+          // Для TIFF или одиночного PDF экспортируем каждый элемент отдельно
+          for (const item of items) {
+            const exportName = item.name || 'export';
+            try {
+              const resultBlob = await exportViaServer([item], {
+                format,
+                ppi,
+                serverUrl,
+                tiffLzw: !!tiffLzw,
+                tiffQuality: tiffQuality || 'standard'
+              });
+              const extension = format === 'pdf' ? 'pdf' : 'tif';
+              await saveBlob(resultBlob, `${exportName}.${extension}`);
+            } catch (error) {
+              console.error('Ошибка обработки элемента', exportName, error);
+              alert(`Не удалось экспортировать «${exportName}»: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+            }
+          }
         }
+      } catch (error) {
+        console.error('Ошибка экспорта', error);
+        alert(`Не удалось выполнить экспорт: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
       }
     }
 

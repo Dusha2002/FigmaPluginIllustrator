@@ -100,6 +100,78 @@ public class ExportService {
         }
     }
 
+    public ExportResponse convertMultiple(java.util.List<org.springframework.web.multipart.MultipartFile> files, ExportRequest request) {
+        String format = normalize(request.getFormat());
+        if (format == null || format.isEmpty()) {
+            format = FORMAT_PDF;
+        }
+        
+        if (!FORMAT_PDF.equals(format)) {
+            throw new ConversionException("Множественные файлы поддерживаются только для экспорта в PDF.");
+        }
+        
+        String baseName = sanitizeName(request.getName(), "combined");
+        
+        try {
+            return convertMultipleToPdf(files, request, baseName);
+        } catch (ConversionException ex) {
+            throw ex;
+        } catch (IOException e) {
+            throw new ConversionException("Не удалось прочитать загруженные файлы.", e);
+        }
+    }
+
+    private ExportResponse convertMultipleToPdf(java.util.List<org.springframework.web.multipart.MultipartFile> files, ExportRequest request, String baseName) throws IOException {
+        ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
+        int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
+        
+        PDDocument combinedDocument = new PDDocument();
+        try {
+            for (int i = 0; i < files.size(); i++) {
+                org.springframework.web.multipart.MultipartFile file = files.get(i);
+                byte[] data = file.getBytes();
+                UploadType uploadType = detectUploadType(file);
+                
+                // Получаем размеры для текущего элемента
+                Integer widthPx = request.getWidthPx(i);
+                Integer heightPx = request.getHeightPx(i);
+                
+                // Создаём временный request для текущего элемента
+                ExportRequest itemRequest = new ExportRequest();
+                itemRequest.setFormat(request.getFormat());
+                itemRequest.setName(baseName + "_" + i);
+                itemRequest.setPpi(request.getPpi());
+                itemRequest.setWidthPx(widthPx);
+                itemRequest.setHeightPx(heightPx);
+                
+                // Создаём PDF-документ для текущего элемента
+                PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, itemRequest, dpi, colorProfile);
+                PDDocument sourceDocument = sourceResult.document();
+                
+                try {
+                    // Копируем страницы из исходного документа в объединённый
+                    for (PDPage page : sourceDocument.getPages()) {
+                        combinedDocument.addPage(page);
+                    }
+                } finally {
+                    // Не закрываем sourceDocument, так как страницы используются в combinedDocument
+                    // sourceDocument.close();
+                }
+            }
+            
+            // Применяем настройки PDF
+            applyPdfDefaults(combinedDocument, colorProfile);
+            
+            byte[] pdfBytes = saveDocument(combinedDocument);
+            ContentDisposition disposition = ContentDisposition.attachment()
+                    .filename(baseName + ".pdf", StandardCharsets.UTF_8)
+                    .build();
+            return new ExportResponse(pdfBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
+        } finally {
+            combinedDocument.close();
+        }
+    }
+
     private ExportResponse convertToPdf(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
