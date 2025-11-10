@@ -4,17 +4,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
-import javax.imageio.ImageTypeSpecifier;
-import javax.imageio.ImageWriteParam;
-import javax.imageio.ImageWriter;
-import javax.imageio.metadata.IIOMetadata;
-import javax.imageio.stream.ImageOutputStream;
+import java.awt.color.ColorSpace;
+import java.awt.color.ICC_ColorSpace;
+import java.awt.color.ICC_Profile;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
+import java.awt.image.DataBuffer;
+import java.awt.image.DataBufferByte;
 import java.io.IOException;
-import java.util.Iterator;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class TiffWriter {
@@ -26,11 +27,31 @@ public class TiffWriter {
 
     private static final Logger logger = LoggerFactory.getLogger(TiffWriter.class);
 
-    private final ImageResolutionMetadata resolutionMetadata;
+    private static final int TYPE_SHORT = 3;
+    private static final int TYPE_LONG = 4;
+    private static final int TYPE_RATIONAL = 5;
+    private static final int TYPE_UNDEFINED = 7;
 
-    public TiffWriter(ImageResolutionMetadata resolutionMetadata) {
-        this.resolutionMetadata = resolutionMetadata;
-    }
+    private static final int TAG_IMAGE_WIDTH = 256;
+    private static final int TAG_IMAGE_LENGTH = 257;
+    private static final int TAG_BITS_PER_SAMPLE = 258;
+    private static final int TAG_COMPRESSION = 259;
+    private static final int TAG_PHOTOMETRIC_INTERPRETATION = 262;
+    private static final int TAG_STRIP_OFFSETS = 273;
+    private static final int TAG_SAMPLES_PER_PIXEL = 277;
+    private static final int TAG_ROWS_PER_STRIP = 278;
+    private static final int TAG_STRIP_BYTE_COUNTS = 279;
+    private static final int TAG_X_RESOLUTION = 282;
+    private static final int TAG_Y_RESOLUTION = 283;
+    private static final int TAG_PLANAR_CONFIGURATION = 284;
+    private static final int TAG_RESOLUTION_UNIT = 296;
+    private static final int TAG_INK_SET = 332;
+    private static final int TAG_NUMBER_OF_INKS = 334;
+    private static final int TAG_EXTRA_SAMPLES = 338;
+    private static final int TAG_ICC_PROFILE = 34675;
+
+    private static final int INK_SET_PROCESS = 1;
+    private static final int RESOLUTION_UNIT_INCH = 2;
 
     public byte[] write(BufferedImage image, int ppi) throws IOException {
         if (image == null) {
@@ -53,132 +74,156 @@ public class TiffWriter {
     private byte[] writeDirectTiff(BufferedImage image, int ppi) throws IOException {
         int width = image.getWidth();
         int height = image.getHeight();
-        
-        // Получаем CMYK данные
+
         byte[] imageData = extractImageData(image);
-        
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocate(8 + 12 * 20 + imageData.length + 4);
-        buffer.order(java.nio.ByteOrder.LITTLE_ENDIAN);
-        
-        // TIFF Header
-        buffer.put((byte) 0x49); // Little endian
+        byte[] iccProfile = extractIccProfile(image);
+
+        List<TiffEntry> entries = new ArrayList<>();
+        entries.add(TiffEntry.inline(TAG_IMAGE_WIDTH, TYPE_LONG, 1, width));
+        entries.add(TiffEntry.inline(TAG_IMAGE_LENGTH, TYPE_LONG, 1, height));
+        entries.add(TiffEntry.withData(TAG_BITS_PER_SAMPLE, TYPE_SHORT, 4, shortsToBytes(8, 8, 8, 8)));
+        entries.add(TiffEntry.inline(TAG_COMPRESSION, TYPE_SHORT, 1, 1));
+        entries.add(TiffEntry.inline(TAG_PHOTOMETRIC_INTERPRETATION, TYPE_SHORT, 1, 5));
+        TiffEntry stripOffsets = TiffEntry.inline(TAG_STRIP_OFFSETS, TYPE_LONG, 1, 0);
+        entries.add(stripOffsets);
+        entries.add(TiffEntry.inline(TAG_SAMPLES_PER_PIXEL, TYPE_SHORT, 1, 4));
+        entries.add(TiffEntry.inline(TAG_ROWS_PER_STRIP, TYPE_LONG, 1, height));
+        entries.add(TiffEntry.inline(TAG_STRIP_BYTE_COUNTS, TYPE_LONG, 1, imageData.length));
+        entries.add(TiffEntry.withData(TAG_X_RESOLUTION, TYPE_RATIONAL, 1, rationalToBytes(ppi, 1)));
+        entries.add(TiffEntry.withData(TAG_Y_RESOLUTION, TYPE_RATIONAL, 1, rationalToBytes(ppi, 1)));
+        entries.add(TiffEntry.inline(TAG_PLANAR_CONFIGURATION, TYPE_SHORT, 1, 1));
+        entries.add(TiffEntry.inline(TAG_RESOLUTION_UNIT, TYPE_SHORT, 1, RESOLUTION_UNIT_INCH));
+        entries.add(TiffEntry.inline(TAG_INK_SET, TYPE_SHORT, 1, INK_SET_PROCESS));
+        entries.add(TiffEntry.inline(TAG_NUMBER_OF_INKS, TYPE_SHORT, 1, 4));
+        entries.add(TiffEntry.inline(TAG_EXTRA_SAMPLES, TYPE_SHORT, 1, 0));
+
+        if (iccProfile != null && iccProfile.length > 0) {
+            entries.add(TiffEntry.withData(TAG_ICC_PROFILE, TYPE_UNDEFINED, iccProfile.length, iccProfile));
+        }
+
+        int entryCount = entries.size();
+        int ifdSize = 2 + entryCount * 12 + 4;
+        int extrasOffset = 8 + ifdSize;
+
+        int extrasLength = 0;
+        for (TiffEntry entry : entries) {
+            if (entry.hasData()) {
+                entry.value = extrasOffset + extrasLength;
+                extrasLength += entry.data.length;
+                if ((entry.data.length & 1) != 0) {
+                    extrasLength += 1;
+                }
+            }
+        }
+
+        int imageOffset = extrasOffset + extrasLength;
+        stripOffsets.value = imageOffset;
+
+        int totalSize = imageOffset + imageData.length;
+        ByteBuffer buffer = ByteBuffer.allocate(totalSize).order(ByteOrder.LITTLE_ENDIAN);
+
         buffer.put((byte) 0x49);
-        buffer.putShort((short) 42); // TIFF magic
-        buffer.putInt(8); // Offset to first IFD
-        
-        // IFD
-        int ifdOffset = 8;
-        buffer.putShort((short) 14); // Number of directory entries
-        
-        // ImageWidth (256)
-        writeIFDEntry(buffer, 256, 4, 1, width);
-        // ImageLength (257)
-        writeIFDEntry(buffer, 257, 4, 1, height);
-        // BitsPerSample (258) - 4 samples of 8 bits
-        int bpsOffset = ifdOffset + 2 + 14 * 12 + 4;
-        writeIFDEntry(buffer, 258, 3, 4, bpsOffset);
-        // Compression (259) - no compression
-        writeIFDEntry(buffer, 259, 3, 1, 1);
-        // PhotometricInterpretation (262) - CMYK = 5
-        writeIFDEntry(buffer, 262, 3, 1, 5);
-        // StripOffsets (273)
-        int stripOffset = bpsOffset + 8 + 8;
-        writeIFDEntry(buffer, 273, 4, 1, stripOffset);
-        // SamplesPerPixel (277)
-        writeIFDEntry(buffer, 277, 3, 1, 4);
-        // RowsPerStrip (278)
-        writeIFDEntry(buffer, 278, 4, 1, height);
-        // StripByteCounts (279)
-        writeIFDEntry(buffer, 279, 4, 1, imageData.length);
-        // XResolution (282)
-        int xresOffset = bpsOffset + 8;
-        writeIFDEntry(buffer, 282, 5, 1, xresOffset);
-        // YResolution (283)
-        int yresOffset = xresOffset + 8;
-        writeIFDEntry(buffer, 283, 5, 1, yresOffset);
-        // PlanarConfiguration (284) - chunky
-        writeIFDEntry(buffer, 284, 3, 1, 1);
-        // ResolutionUnit (296) - inches = 2
-        writeIFDEntry(buffer, 296, 3, 1, 2);
-        // ExtraSamples (338) - none
-        writeIFDEntry(buffer, 338, 3, 1, 0);
-        
-        // Next IFD offset (0 = no more)
+        buffer.put((byte) 0x49);
+        buffer.putShort((short) 42);
+        buffer.putInt(8);
+
+        buffer.putShort((short) entryCount);
+        for (TiffEntry entry : entries) {
+            buffer.putShort((short) entry.tag);
+            buffer.putShort((short) entry.type);
+            buffer.putInt(entry.count);
+            buffer.putInt((int) entry.value);
+        }
         buffer.putInt(0);
-        
-        // BitsPerSample values
-        buffer.putShort((short) 8);
-        buffer.putShort((short) 8);
-        buffer.putShort((short) 8);
-        buffer.putShort((short) 8);
-        
-        // XResolution rational
-        buffer.putInt(ppi);
-        buffer.putInt(1);
-        
-        // YResolution rational
-        buffer.putInt(ppi);
-        buffer.putInt(1);
-        
-        // Write to output
-        baos.write(buffer.array(), 0, buffer.position());
-        baos.write(imageData);
-        
-        return baos.toByteArray();
+
+        for (TiffEntry entry : entries) {
+            if (entry.hasData()) {
+                buffer.put(entry.data);
+                if ((entry.data.length & 1) != 0) {
+                    buffer.put((byte) 0);
+                }
+            }
+        }
+
+        buffer.put(imageData);
+
+        return buffer.array();
     }
-    
-    private void writeIFDEntry(java.nio.ByteBuffer buffer, int tag, int type, int count, int value) {
-        buffer.putShort((short) tag);
-        buffer.putShort((short) type);
-        buffer.putInt(count);
-        buffer.putInt(value);
-    }
-    
-    private byte[] extractImageData(BufferedImage image) {
+
+    private static byte[] extractImageData(BufferedImage image) {
+        DataBuffer dataBuffer = image.getRaster().getDataBuffer();
+        if (dataBuffer instanceof DataBufferByte dataBufferByte) {
+            return dataBufferByte.getData().clone();
+        }
+
         int width = image.getWidth();
         int height = image.getHeight();
-        java.awt.image.Raster raster = image.getRaster();
-        java.awt.image.DataBuffer dataBuffer = raster.getDataBuffer();
-        
-        if (dataBuffer instanceof java.awt.image.DataBufferByte) {
-            return ((java.awt.image.DataBufferByte) dataBuffer).getData();
-        }
-        
-        // Fallback: extract manually
-        int numBands = raster.getNumBands();
+        int numBands = image.getRaster().getNumBands();
         byte[] data = new byte[width * height * numBands];
         int[] pixel = new int[numBands];
         int index = 0;
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
-                raster.getPixel(x, y, pixel);
-                for (int b = 0; b < numBands; b++) {
-                    data[index++] = (byte) pixel[b];
+                image.getRaster().getPixel(x, y, pixel);
+                for (int band = 0; band < numBands; band++) {
+                    data[index++] = (byte) pixel[band];
                 }
             }
         }
         return data;
     }
 
-    private ImageWriter selectWriter(ImageTypeSpecifier typeSpecifier) {
-        ImageWriter preferred = null;
-        ImageWriter fallback = null;
-        Iterator<ImageWriter> writers = ImageIO.getImageWriters(typeSpecifier, "tiff");
-        while (writers.hasNext()) {
-            ImageWriter candidate = writers.next();
-            String className = candidate.getClass().getName();
-            if (className.startsWith("com.twelvemonkeys.imageio.plugins.tiff")) {
-                preferred = candidate;
-                break;
-            }
-            if (fallback == null) {
-                fallback = candidate;
+    private static byte[] extractIccProfile(BufferedImage image) {
+        ColorSpace colorSpace = image.getColorModel().getColorSpace();
+        if (colorSpace instanceof ICC_ColorSpace iccColorSpace) {
+            ICC_Profile profile = iccColorSpace.getProfile();
+            if (profile != null) {
+                return profile.getData();
             }
         }
-        if (preferred != null) {
-            return preferred;
+        return null;
+    }
+
+    private static byte[] shortsToBytes(int... values) {
+        ByteBuffer buffer = ByteBuffer.allocate(values.length * 2).order(ByteOrder.LITTLE_ENDIAN);
+        for (int value : values) {
+            buffer.putShort((short) value);
         }
-        return fallback;
+        return buffer.array();
+    }
+
+    private static byte[] rationalToBytes(int numerator, int denominator) {
+        ByteBuffer buffer = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
+        buffer.putInt(numerator);
+        buffer.putInt(denominator);
+        return buffer.array();
+    }
+
+    private static final class TiffEntry {
+        final int tag;
+        final int type;
+        final int count;
+        long value;
+        byte[] data;
+
+        private TiffEntry(int tag, int type, int count, long value, byte[] data) {
+            this.tag = tag;
+            this.type = type;
+            this.count = count;
+            this.value = value;
+            this.data = data;
+        }
+
+        static TiffEntry inline(int tag, int type, int count, long value) {
+            return new TiffEntry(tag, type, count, value, null);
+        }
+
+        static TiffEntry withData(int tag, int type, int count, byte[] data) {
+            return new TiffEntry(tag, type, count, 0, data);
+        }
+
+        boolean hasData() {
+            return data != null;
+        }
     }
 }
