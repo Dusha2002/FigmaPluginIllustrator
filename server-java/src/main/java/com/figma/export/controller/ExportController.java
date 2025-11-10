@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -20,19 +22,24 @@ import java.util.List;
 @RequestMapping("/convert")
 public class ExportController {
 
+    private static final Logger logger = LoggerFactory.getLogger(ExportController.class);
+
     private final ExportService exportService;
 
     public ExportController(ExportService exportService) {
         this.exportService = exportService;
     }
 
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(value = "/convert", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<byte[]> convert(
             @RequestPart(value = "image", required = false) MultipartFile file,
             @RequestPart(value = "images", required = false) List<MultipartFile> files,
             @Valid @ModelAttribute ExportRequest request,
             jakarta.servlet.http.HttpServletRequest servletRequest
     ) {
+        logger.info("Получен запрос на конвертацию: format={}, pdfVersion={}, ppi={}", 
+            request.getFormat(), request.getPdfVersion(), request.getPpi());
+        
         // Обработка параметров widthPx_N и heightPx_N для множественных файлов
         if (files != null && !files.isEmpty()) {
             for (int i = 0; i < files.size(); i++) {
