@@ -160,11 +160,15 @@ public class ExportService {
         boolean supersample = TIFF_QUALITY_SUPERSAMPLE.equals(tiffQuality);
         if (supersample) {
             long supersamplePixels = (long) targetWidth * 2 * (long) targetHeight * 2;
+            logger.info("Supersample запрошен: target={}x{}, supersample={}x{}, pixels={}", 
+                targetWidth, targetHeight, targetWidth * 2, targetHeight * 2, supersamplePixels);
             if (targetWidth * 2 > MAX_TIFF_DIMENSION
                     || targetHeight * 2 > MAX_TIFF_DIMENSION
                     || supersamplePixels > MAX_TIFF_TOTAL_PIXELS) {
                 logger.info("Supersample требует изображение {}x{}, превышающее лимиты. Используется стандартное качество.", targetWidth * 2, targetHeight * 2);
                 supersample = false;
+            } else {
+                logger.info("Supersample активирован: будет обработка в {}x{}", targetWidth * 2, targetHeight * 2);
             }
         }
 
