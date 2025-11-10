@@ -1,8 +1,11 @@
 package com.figma.export.pdf;
 
 import com.figma.export.exception.ConversionException;
+import com.lowagie.text.Document;
+import com.lowagie.text.DocumentException;
+import com.lowagie.text.pdf.PdfCopy;
+import com.lowagie.text.pdf.PdfImportedPage;
 import com.lowagie.text.pdf.PdfReader;
-import com.lowagie.text.pdf.PdfStamper;
 import com.lowagie.text.pdf.PdfWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,18 +27,29 @@ public class OpenPdfFallbackService {
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {
 
             PdfReader reader = new PdfReader(input);
-            PdfStamper stamper = new PdfStamper(reader, output, pdfVersion);
-            stamper.getWriter().setPdfVersion(pdfVersion);
-            stamper.close();
+            Document document = new Document(reader.getPageSizeWithRotation(1));
+            PdfCopy copy = new PdfCopy(document, output);
+            copy.setPdfVersion(pdfVersion);
+            document.open();
+
+            int pages = reader.getNumberOfPages();
+            for (int i = 1; i <= pages; i++) {
+                PdfImportedPage page = copy.getImportedPage(reader, i);
+                copy.addPage(page);
+            }
+
+            copy.freeReader(reader);
             reader.close();
+            document.close();
 
             byte[] rewritten = output.toByteArray();
             if (logger.isInfoEnabled()) {
-                logger.info("OpenPDF fallback завершён: targetVersion={}, size={} bytes",
-                        String.format(Locale.ROOT, "%.1f", parseVersionFloat(targetVersion)), rewritten.length);
+                String header = extractHeader(rewritten);
+                logger.info("OpenPDF fallback завершён: targetVersion={}, size={} bytes, header={}",
+                        String.format(Locale.ROOT, "%.1f", parseVersionFloat(targetVersion)), rewritten.length, header);
             }
             return rewritten;
-        } catch (IOException | com.lowagie.text.DocumentException ex) {
+        } catch (IOException | DocumentException ex) {
             throw new ConversionException("Не удалось пересобрать PDF через OpenPDF.", ex);
         }
     }
@@ -68,5 +82,12 @@ public class OpenPdfFallbackService {
         } catch (NumberFormatException ex) {
             return 1.6f;
         }
+    }
+
+    private String extractHeader(byte[] pdfBytes) {
+        if (pdfBytes == null || pdfBytes.length < 8) {
+            return "<short>";
+        }
+        return new String(pdfBytes, 0, 8);
     }
 }

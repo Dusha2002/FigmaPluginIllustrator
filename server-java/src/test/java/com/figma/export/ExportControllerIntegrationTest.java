@@ -2,6 +2,8 @@ package com.figma.export;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -51,9 +53,9 @@ class ExportControllerIntegrationTest {
         assertThat(response).isNotEmpty();
     }
 
-    @Test
-    @DisplayName("POST /convert (SVG→PDF, версия 1.3) включает fallback OpenPDF")
-    void convertSvgToPdfWithPdfVersion13TriggersFallback() throws Exception {
+    @ParameterizedTest(name = "POST /convert (SVG→PDF, версия {0}) возвращает корректный заголовок")
+    @ValueSource(strings = {"1.3", "1.4", "1.5", "1.6", "1.7"})
+    void convertSvgToPdfWithRequestedVersionProducesMatchingHeader(String pdfVersion) throws Exception {
         String svg = """
                 <svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'>
                   <rect x='2' y='2' width='36' height='36' fill='#123456' fill-opacity='0.5'/>
@@ -69,9 +71,9 @@ class ExportControllerIntegrationTest {
         byte[] response = mockMvc.perform(multipart("/convert")
                         .file(file)
                         .param("format", "pdf")
-                        .param("name", "fallback_test")
+                        .param("name", "fallback_" + pdfVersion.replace('.', '_'))
                         .param("ppi", "150")
-                        .param("pdfVersion", "1.3"))
+                        .param("pdfVersion", pdfVersion))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_PDF))
                 .andReturn()
@@ -79,9 +81,8 @@ class ExportControllerIntegrationTest {
                 .getContentAsByteArray();
 
         assertThat(response).isNotEmpty();
-        // Заголовок начинается с %PDF-1.3
         String header = new String(response, 0, Math.min(response.length, 8));
-        assertThat(header).contains("%PDF-1.3");
+        assertThat(header).contains("%PDF-" + pdfVersion);
     }
 
     @Test

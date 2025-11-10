@@ -195,10 +195,8 @@ public class ExportService {
             
             try (PDDocument combinedDocument = Loader.loadPDF(finalPdfBytes)) {
                 applyPdfDefaults(combinedDocument, colorProfile, request.getPdfVersion());
-                float requestedVersion = parsePdfVersion(request.getPdfVersion());
-                float actualVersion = combinedDocument.getVersion();
                 finalPdfBytes = saveDocument(combinedDocument);
-                finalPdfBytes = ensureRequestedPdfVersion(finalPdfBytes, requestedVersion, actualVersion, baseName);
+                finalPdfBytes = ensureRequestedPdfVersion(finalPdfBytes, request.getPdfVersion(), baseName);
             }
 
             logger.info("PDF объединение завершено: итоговый размер={} bytes ({} МБ)", 
@@ -234,10 +232,8 @@ public class ExportService {
             }
 
             applyPdfDefaults(workingDocument, colorProfile, request.getPdfVersion());
-            float requestedVersion = parsePdfVersion(request.getPdfVersion());
-            float actualVersion = workingDocument.getVersion();
             byte[] pdfBytes = saveDocument(workingDocument);
-            pdfBytes = ensureRequestedPdfVersion(pdfBytes, requestedVersion, actualVersion, baseName);
+            pdfBytes = ensureRequestedPdfVersion(pdfBytes, request.getPdfVersion(), baseName);
             
             logger.info("PDF создан: size={} bytes ({} МБ)", 
                 pdfBytes.length, String.format("%.2f", pdfBytes.length / (1024d * 1024d)));
@@ -528,20 +524,42 @@ public class ExportService {
         }
     }
 
-    private byte[] ensureRequestedPdfVersion(byte[] pdfBytes, float requestedVersion, float actualVersion, String baseName) {
-        if (requestedVersion <= 0f) {
+    private byte[] ensureRequestedPdfVersion(byte[] pdfBytes, String requestedVersionText, String baseName) {
+        float requestedVersion = parsePdfVersion(requestedVersionText);
+        float actualVersion = extractPdfHeaderVersion(pdfBytes);
+        if (requestedVersion <= 0f || actualVersion <= 0f) {
             return pdfBytes;
         }
-        if (actualVersion - requestedVersion <= 0.05f) {
+        if (Math.abs(actualVersion - requestedVersion) <= 0.05f) {
             return pdfBytes;
         }
 
-        String requestedVersionText = formatPdfVersion(requestedVersion);
-        logger.info("PDF версия {} отличается от запрошенной {} – запускаем OpenPDF fallback для {}", 
-                String.format(Locale.ROOT, "%.1f", actualVersion), requestedVersionText, baseName);
-        byte[] rewritten = openPdfFallbackService.rewritePdf(pdfBytes, requestedVersionText);
-        logger.info("OpenPDF fallback завершён для {}", baseName);
+        String formattedRequested = formatPdfVersion(requestedVersion);
+        logger.info("PDF версия {} отличается от запрошенной {} (разница={}) – запускаем OpenPDF fallback для {}",
+                String.format(Locale.ROOT, "%.1f", actualVersion), formattedRequested,
+                String.format(Locale.ROOT, "%.2f", actualVersion - requestedVersion), baseName);
+        byte[] rewritten = openPdfFallbackService.rewritePdf(pdfBytes, formattedRequested);
+        float rewrittenVersion = extractPdfHeaderVersion(rewritten);
+        logger.info("OpenPDF fallback завершён для {}: итоговая версия {}", baseName,
+                rewrittenVersion > 0f ? String.format(Locale.ROOT, "%.1f", rewrittenVersion) : "<unknown>");
         return rewritten;
+    }
+
+    private float extractPdfHeaderVersion(byte[] pdfBytes) {
+        if (pdfBytes == null || pdfBytes.length < 8) {
+            return -1f;
+        }
+        String header = new String(pdfBytes, 0, 8, StandardCharsets.ISO_8859_1);
+        int index = header.indexOf("%PDF-");
+        if (index < 0 || index + 7 > header.length()) {
+            return -1f;
+        }
+        String versionPart = header.substring(index + 5, Math.min(header.length(), index + 8)).trim();
+        try {
+            return Float.parseFloat(versionPart);
+        } catch (NumberFormatException ex) {
+            return -1f;
+        }
     }
 
     private UploadType detectUploadType(MultipartFile file, String format) {
