@@ -86,6 +86,17 @@ class TiffWriterTest {
         assertNotNull(iccEntry, "ICC профиль должен быть встроен");
         assertTrue(iccEntry.count > 0);
 
+        // Проверяем, что TAG_EXTRA_SAMPLES отсутствует (для совместимости с Illustrator)
+        assertNull(entries.get(338), "TAG_EXTRA_SAMPLES не должен присутствовать");
+
+        // Проверяем, что теги отсортированы по возрастанию
+        int[] tags = entries.keySet().stream().mapToInt(Integer::intValue).sorted().toArray();
+        int prevTag = -1;
+        for (int tag : tags) {
+            assertTrue(tag > prevTag, "Теги должны быть отсортированы по возрастанию");
+            prevTag = tag;
+        }
+
         TiffEntryView stripOffsets = entries.get(273);
         TiffEntryView stripByteCounts = entries.get(279);
         assertNotNull(stripOffsets);

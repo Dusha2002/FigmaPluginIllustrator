@@ -95,11 +95,13 @@ public class TiffWriter {
         entries.add(TiffEntry.inline(TAG_RESOLUTION_UNIT, TYPE_SHORT, 1, RESOLUTION_UNIT_INCH));
         entries.add(TiffEntry.inline(TAG_INK_SET, TYPE_SHORT, 1, INK_SET_PROCESS));
         entries.add(TiffEntry.inline(TAG_NUMBER_OF_INKS, TYPE_SHORT, 1, 4));
-        entries.add(TiffEntry.inline(TAG_EXTRA_SAMPLES, TYPE_SHORT, 1, 0));
 
         if (iccProfile != null && iccProfile.length > 0) {
             entries.add(TiffEntry.withData(TAG_ICC_PROFILE, TYPE_UNDEFINED, iccProfile.length, iccProfile));
         }
+
+        // Сортируем теги по возрастанию (требование TIFF спецификации)
+        entries.sort((a, b) -> Integer.compare(a.tag, b.tag));
 
         int entryCount = entries.size();
         int ifdSize = 2 + entryCount * 12 + 4;
