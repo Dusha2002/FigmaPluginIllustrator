@@ -72,7 +72,13 @@ public class ImageProcessingService {
         if (targetWidth <= 0 || targetHeight <= 0 || (source.getWidth() == targetWidth && source.getHeight() == targetHeight)) {
             return source;
         }
-        BufferedImage result = new BufferedImage(targetWidth, targetHeight, source.getType());
+        BufferedImage result;
+        if (source.getType() == BufferedImage.TYPE_CUSTOM) {
+            WritableRaster raster = source.getColorModel().createCompatibleWritableRaster(targetWidth, targetHeight);
+            result = new BufferedImage(source.getColorModel(), raster, source.isAlphaPremultiplied(), null);
+        } else {
+            result = new BufferedImage(targetWidth, targetHeight, source.getType());
+        }
         Graphics2D graphics = result.createGraphics();
         try {
             applyCommonHints(graphics, textHint);
