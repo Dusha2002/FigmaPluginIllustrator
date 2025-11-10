@@ -4,7 +4,6 @@ com\figma\export\color\ColorProfileManager$ColorProfileDescriptor.class
 com\figma\export\service\ImageResolutionMetadata.class
 com\figma\export\pdf\CmykPdfColorMapper.class
 com\figma\export\color\ColorProfile.class
-com\figma\export\service\TiffWriter$TiffEntry.class
 com\figma\export\exception\ErrorResponse.class
 com\figma\export\service\ImageProcessingService.class
 com\figma\export\exception\GlobalExceptionHandler.class
