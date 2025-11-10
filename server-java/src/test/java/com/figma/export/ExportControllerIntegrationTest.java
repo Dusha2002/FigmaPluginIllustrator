@@ -52,6 +52,39 @@ class ExportControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("POST /convert (SVG→PDF, версия 1.3) включает fallback OpenPDF")
+    void convertSvgToPdfWithPdfVersion13TriggersFallback() throws Exception {
+        String svg = """
+                <svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'>
+                  <rect x='2' y='2' width='36' height='36' fill='#123456' fill-opacity='0.5'/>
+                </svg>
+                """;
+        MockMultipartFile file = new MockMultipartFile(
+                "image",
+                "transparent.svg",
+                "image/svg+xml",
+                svg.getBytes()
+        );
+
+        byte[] response = mockMvc.perform(multipart("/convert")
+                        .file(file)
+                        .param("format", "pdf")
+                        .param("name", "fallback_test")
+                        .param("ppi", "150")
+                        .param("pdfVersion", "1.3"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray();
+
+        assertThat(response).isNotEmpty();
+        // Заголовок начинается с %PDF-1.3
+        String header = new String(response, 0, Math.min(response.length, 8));
+        assertThat(header).contains("%PDF-1.3");
+    }
+
+    @Test
     @DisplayName("POST /convert с неподдерживаемым форматом возвращает 400")
     void convertWithUnsupportedFormatReturnsBadRequest() throws Exception {
         MockMultipartFile file = new MockMultipartFile(

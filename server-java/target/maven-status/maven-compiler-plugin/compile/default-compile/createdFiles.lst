@@ -10,6 +10,7 @@ com\figma\export\exception\GlobalExceptionHandler.class
 com\figma\export\svg\SvgRenderer.class
 com\figma\export\svg\SvgRenderer$SvgRenderResult.class
 com\figma\export\service\ExportService.class
+com\figma\export\pdf\OpenPdfFallbackService.class
 com\figma\export\color\ColorProfileManager$ColorProfileDescriptor$Builder.class
 com\figma\export\svg\SvgRenderer$BufferedImageTranscoderResult.class
 com\figma\export\model\UploadType.class

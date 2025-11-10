@@ -1313,8 +1313,10 @@
         useServer,
         serverUrl,
         tiffLzw,
-        tiffQuality
+        tiffQuality,
+        pdfVersion
       } = message;
+      const effectivePdfVersion = typeof pdfVersion === 'string' ? pdfVersion : '1.4';
 
       if (!serverUrl) {
         throw new Error('Не указан адрес сервера конвертации.');
@@ -1326,7 +1328,7 @@
           const resultBlob = await exportViaServer(items, {
             format,
             ppi,
-            pdfVersion,
+            pdfVersion: effectivePdfVersion,
             serverUrl,
             tiffLzw: !!tiffLzw,
             tiffQuality: tiffQuality || 'standard'
@@ -1341,7 +1343,7 @@
               const resultBlob = await exportViaServer([item], {
                 format,
                 ppi,
-                pdfVersion,
+                pdfVersion: effectivePdfVersion,
                 serverUrl,
                 tiffLzw: !!tiffLzw,
                 tiffQuality: tiffQuality || 'standard'

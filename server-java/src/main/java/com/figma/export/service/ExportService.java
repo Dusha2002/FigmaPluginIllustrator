@@ -7,6 +7,7 @@ import com.figma.export.model.ExportRequest;
 import com.figma.export.model.ExportResponse;
 import com.figma.export.model.UploadType;
 import com.figma.export.pdf.CmykPdfColorMapper;
+import com.figma.export.pdf.OpenPdfFallbackService;
 import com.figma.export.svg.SvgRenderer;
 import com.figma.export.svg.SvgRenderer.SvgRenderResult;
 import org.apache.pdfbox.Loader;
@@ -62,19 +63,22 @@ public class ExportService {
     private final TiffWriter tiffWriter;
     private final JpegWriter jpegWriter;
     private final ColorProfileManager colorProfileManager;
+    private final OpenPdfFallbackService openPdfFallbackService;
 
     public ExportService(SvgRenderer svgRenderer,
                          ImageProcessingService imageProcessingService,
                          ImageInputLoader imageInputLoader,
                          TiffWriter tiffWriter,
                          JpegWriter jpegWriter,
-                         ColorProfileManager colorProfileManager) {
+                         ColorProfileManager colorProfileManager,
+                         OpenPdfFallbackService openPdfFallbackService) {
         this.svgRenderer = svgRenderer;
         this.imageProcessingService = imageProcessingService;
         this.imageInputLoader = imageInputLoader;
         this.tiffWriter = tiffWriter;
         this.jpegWriter = jpegWriter;
         this.colorProfileManager = colorProfileManager;
+        this.openPdfFallbackService = openPdfFallbackService;
     }
 
     public ExportResponse convert(MultipartFile file, ExportRequest request) {
@@ -98,6 +102,10 @@ public class ExportService {
         } catch (IOException e) {
             throw new ConversionException("Не удалось прочитать загруженный файл.", e);
         }
+    }
+
+    private String formatPdfVersion(float version) {
+        return String.format(Locale.ROOT, "%.1f", version);
     }
 
     public ExportResponse convertMultiple(java.util.List<org.springframework.web.multipart.MultipartFile> files, ExportRequest request) {
@@ -187,7 +195,10 @@ public class ExportService {
             
             try (PDDocument combinedDocument = Loader.loadPDF(finalPdfBytes)) {
                 applyPdfDefaults(combinedDocument, colorProfile, request.getPdfVersion());
+                float requestedVersion = parsePdfVersion(request.getPdfVersion());
+                float actualVersion = combinedDocument.getVersion();
                 finalPdfBytes = saveDocument(combinedDocument);
+                finalPdfBytes = ensureRequestedPdfVersion(finalPdfBytes, requestedVersion, actualVersion, baseName);
             }
 
             logger.info("PDF объединение завершено: итоговый размер={} bytes ({} МБ)", 
@@ -223,7 +234,10 @@ public class ExportService {
             }
 
             applyPdfDefaults(workingDocument, colorProfile, request.getPdfVersion());
+            float requestedVersion = parsePdfVersion(request.getPdfVersion());
+            float actualVersion = workingDocument.getVersion();
             byte[] pdfBytes = saveDocument(workingDocument);
+            pdfBytes = ensureRequestedPdfVersion(pdfBytes, requestedVersion, actualVersion, baseName);
             
             logger.info("PDF создан: size={} bytes ({} МБ)", 
                 pdfBytes.length, String.format("%.2f", pdfBytes.length / (1024d * 1024d)));
@@ -452,7 +466,8 @@ public class ExportService {
     }
 
     private void applyPdfDefaults(PDDocument document, ColorProfile profile, String pdfVersion) throws IOException {
-        document.setVersion(parsePdfVersion(pdfVersion));
+        float normalizedVersion = parsePdfVersion(pdfVersion);
+        document.setVersion(normalizedVersion);
         PDDocumentInformation information = document.getDocumentInformation();
         if (information == null) {
             information = new PDDocumentInformation();
@@ -467,6 +482,10 @@ public class ExportService {
         information.setModificationDate(calendar);
 
         PDDocumentCatalog catalog = document.getDocumentCatalog();
+        if (catalog != null) {
+            String catalogVersion = normalizedVersion <= 1.3f ? null : formatPdfVersion(normalizedVersion);
+            catalog.setVersion(catalogVersion);
+        }
         var outputIntents = catalog.getOutputIntents();
         if (outputIntents != null) {
             outputIntents.clear();
@@ -477,6 +496,10 @@ public class ExportService {
         intent.setOutputConditionIdentifier(profile.getOutputConditionIdentifier());
         intent.setRegistryName("http://www.color.org");
         catalog.addOutputIntent(intent);
+
+        logger.info("Применена версия PDF: header={}, catalog={}",
+                String.format(Locale.ROOT, "%.1f", document.getVersion()),
+                catalog != null ? catalog.getVersion() : "<none>");
     }
 
     private float parsePdfVersion(String version) {
@@ -503,6 +526,22 @@ public class ExportService {
             document.save(output);
             return output.toByteArray();
         }
+    }
+
+    private byte[] ensureRequestedPdfVersion(byte[] pdfBytes, float requestedVersion, float actualVersion, String baseName) {
+        if (requestedVersion <= 0f) {
+            return pdfBytes;
+        }
+        if (actualVersion - requestedVersion <= 0.05f) {
+            return pdfBytes;
+        }
+
+        String requestedVersionText = formatPdfVersion(requestedVersion);
+        logger.info("PDF версия {} отличается от запрошенной {} – запускаем OpenPDF fallback для {}", 
+                String.format(Locale.ROOT, "%.1f", actualVersion), requestedVersionText, baseName);
+        byte[] rewritten = openPdfFallbackService.rewritePdf(pdfBytes, requestedVersionText);
+        logger.info("OpenPDF fallback завершён для {}", baseName);
+        return rewritten;
     }
 
     private UploadType detectUploadType(MultipartFile file, String format) {
