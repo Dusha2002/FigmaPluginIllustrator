@@ -24,6 +24,7 @@ const defaultPreferences = {
   height: DEFAULT_UI_SIZE.height,
   themeOverride: null,
   exportFormat: 'pdf',
+  pdfVersion: '1.4',
   tiffPpi: 300,
   tiffQuality: 'standard',
   tiffLzw: true
@@ -75,6 +76,7 @@ function sendUiPreferences() {
     sizePreset: uiPreferences.sizePreset,
     themeOverride: uiPreferences.themeOverride,
     exportFormat: uiPreferences.exportFormat,
+    pdfVersion: uiPreferences.pdfVersion,
     tiffPpi: uiPreferences.tiffPpi,
     tiffQuality: uiPreferences.tiffQuality,
     tiffLzw: uiPreferences.tiffLzw
@@ -341,13 +343,25 @@ sendUiDimensions();
         uiPreferences.sizePreset = stored.sizePreset;
       }
       if (typeof stored.width === 'number') {
-        uiPreferences.width = clampUiWidth(stored.width);
+        uiPreferences.width = stored.width;
       }
       if (typeof stored.height === 'number') {
-        uiPreferences.height = clampUiHeight(stored.height);
+        uiPreferences.height = stored.height;
       }
       if (typeof stored.themeOverride === 'string' || stored.themeOverride === null) {
         uiPreferences.themeOverride = stored.themeOverride;
+      }
+      if (typeof stored.exportFormat === 'string') {
+        uiPreferences.exportFormat = stored.exportFormat;
+      }
+      if (typeof stored.pdfVersion === 'string') {
+        uiPreferences.pdfVersion = stored.pdfVersion;
+      }
+      if (typeof stored.tiffPpi === 'number') {
+        uiPreferences.tiffPpi = stored.tiffPpi;
+      }
+      if (typeof stored.tiffQuality === 'string') {
+        uiPreferences.tiffQuality = stored.tiffQuality;
       }
     }
   } catch (error) {
@@ -442,6 +456,9 @@ async function exportSelection(settings) {
   const requestedPpi = settings && typeof settings.ppi === 'number'
     ? Math.max(settings.ppi, 1)
     : basePpi;
+  const pdfVersion = settings && typeof settings.pdfVersion === 'string'
+    ? settings.pdfVersion
+    : '1.4';
   const tiffQuality = settings && typeof settings.tiffQuality === 'string'
     ? settings.tiffQuality
     : 'standard';
@@ -505,16 +522,15 @@ async function exportSelection(settings) {
     throw new Error('Не удалось экспортировать выделенные объекты.');
   }
   const effectivePpi = requestedPpi;
-  const pdfVersion = settings && typeof settings.pdfVersion === 'string' ? settings.pdfVersion : '1.4';
   return {
     items: exported,
     format: exportFormat,
     ppi: effectivePpi,
     useServer: true,
     serverUrl,
+    pdfVersion,
     tiffLzw: exportFormat === 'tiff' && useTiffLzw,
-    tiffQuality: exportFormat === 'tiff' ? tiffQuality : 'standard',
-    pdfVersion: exportFormat === 'pdf' ? pdfVersion : '1.4'
+    tiffQuality: exportFormat === 'tiff' ? tiffQuality : 'standard'
   };
 }
 
@@ -555,7 +571,8 @@ figma.ui.onmessage = async (message) => {
           useServer: result.useServer,
           serverUrl: result.serverUrl,
           tiffLzw: result.tiffLzw,
-          tiffQuality: result.tiffQuality
+          tiffQuality: result.tiffQuality,
+          pdfVersion: result.pdfVersion
         });
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : 'Ошибка экспорта.';
@@ -609,6 +626,9 @@ figma.ui.onmessage = async (message) => {
       const update = {};
       if (typeof message.exportFormat === 'string') {
         update.exportFormat = message.exportFormat;
+      }
+      if (typeof message.pdfVersion === 'string') {
+        update.pdfVersion = message.pdfVersion;
       }
       if (typeof message.tiffPpi === 'number') {
         update.tiffPpi = message.tiffPpi;
