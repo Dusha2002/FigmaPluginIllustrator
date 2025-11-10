@@ -25,10 +25,31 @@ const defaultPreferences = {
   themeOverride: null,
   exportFormat: 'pdf',
   pdfVersion: '1.4',
+  pdfStandard: 'none',
   tiffPpi: 300,
   tiffQuality: 'standard',
   tiffLzw: true
 };
+
+const PDF_STANDARD_MIN_VERSION = {
+  none: 1.3,
+  'pdfx-1a': 1.3,
+  'pdfx-3': 1.3,
+  'pdfx-4': 1.6
+};
+
+function ensurePdfVersionForStandard(version, standard) {
+  const hasStandard = Object.prototype.hasOwnProperty.call(PDF_STANDARD_MIN_VERSION, standard);
+  const minVersion = hasStandard ? PDF_STANDARD_MIN_VERSION[standard] : PDF_STANDARD_MIN_VERSION.none;
+  const parsed = parseFloat(version);
+  if (Number.isNaN(parsed)) {
+    return minVersion.toFixed(1);
+  }
+  if (parsed < minVersion - 1e-6) {
+    return minVersion.toFixed(1);
+  }
+  return parsed.toFixed(1);
+}
 
 const currentUiSize = {
   width: DEFAULT_UI_SIZE.width,
@@ -77,6 +98,7 @@ function sendUiPreferences() {
     themeOverride: uiPreferences.themeOverride,
     exportFormat: uiPreferences.exportFormat,
     pdfVersion: uiPreferences.pdfVersion,
+    pdfStandard: uiPreferences.pdfStandard,
     tiffPpi: uiPreferences.tiffPpi,
     tiffQuality: uiPreferences.tiffQuality,
     tiffLzw: uiPreferences.tiffLzw
@@ -363,6 +385,9 @@ sendUiDimensions();
       if (typeof stored.tiffQuality === 'string') {
         uiPreferences.tiffQuality = stored.tiffQuality;
       }
+      if (typeof stored.pdfStandard === 'string') {
+        uiPreferences.pdfStandard = stored.pdfStandard;
+      }
     }
   } catch (error) {
     // Игнорируем ошибки загрузки настроек.
@@ -459,6 +484,9 @@ async function exportSelection(settings) {
   const pdfVersion = settings && typeof settings.pdfVersion === 'string'
     ? settings.pdfVersion
     : '1.4';
+  const pdfStandard = settings && typeof settings.pdfStandard === 'string'
+    ? settings.pdfStandard
+    : 'none';
   const tiffQuality = settings && typeof settings.tiffQuality === 'string'
     ? settings.tiffQuality
     : 'standard';
@@ -470,6 +498,8 @@ async function exportSelection(settings) {
   const exportScale = exportFormat === 'tiff'
     ? (requestedPpi / DEFAULT_PPI)
     : Math.max(requestedPpi / basePpi, 0.01);
+
+  const effectivePdfVersion = ensurePdfVersionForStandard(pdfVersion, pdfStandard);
   const selection = figma.currentPage.selection;
   if (selection.length === 0) {
     throw new Error('Нет выделенных объектов для экспорта.');
@@ -528,9 +558,10 @@ async function exportSelection(settings) {
     ppi: effectivePpi,
     useServer: true,
     serverUrl,
-    pdfVersion,
+    pdfVersion: effectivePdfVersion,
     tiffLzw: exportFormat === 'tiff' && useTiffLzw,
-    tiffQuality: exportFormat === 'tiff' ? tiffQuality : 'standard'
+    tiffQuality: exportFormat === 'tiff' ? tiffQuality : 'standard',
+    pdfStandard
   };
 }
 
@@ -572,7 +603,8 @@ figma.ui.onmessage = async (message) => {
           serverUrl: result.serverUrl,
           tiffLzw: result.tiffLzw,
           tiffQuality: result.tiffQuality,
-          pdfVersion: result.pdfVersion
+          pdfVersion: result.pdfVersion,
+          pdfStandard: result.pdfStandard
         });
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : 'Ошибка экспорта.';
@@ -638,6 +670,9 @@ figma.ui.onmessage = async (message) => {
       }
       if (typeof message.tiffLzw === 'boolean') {
         update.tiffLzw = message.tiffLzw;
+      }
+      if (typeof message.pdfStandard === 'string') {
+        update.pdfStandard = message.pdfStandard;
       }
       if (Object.keys(update).length > 0) {
         await updatePreferences(update);

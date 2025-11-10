@@ -19,6 +19,7 @@ com\figma\export\controller\ExportController.class
 com\figma\export\service\JpegWriter.class
 com\figma\export\service\ExportService$PdfDocumentResult.class
 com\figma\export\exception\ConversionException.class
+com\figma\export\pdf\PdfStandard.class
 com\figma\export\service\ExportService$1.class
 com\figma\export\ExportServerApplication.class
 com\figma\export\config\CorsConfig.class

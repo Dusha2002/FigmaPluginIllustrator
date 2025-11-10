@@ -499,6 +499,16 @@
             <option value="1.7">PDF 1.7</option>
           </select>
         </label>
+        <label>
+          Стандарт PDF/X
+          <select id="pdf-standard">
+            <option value="none" selected>Без стандарта</option>
+            <option value="pdfx-1a">PDF/X-1a:2001 — только CMYK, без прозрачности</option>
+            <option value="pdfx-3">PDF/X-3:2002 — допускает управляемый цвет</option>
+            <option value="pdfx-4">PDF/X-4 — поддерживает прозрачность, требуется PDF 1.6</option>
+          </select>
+        </label>
+        <p class="hint" id="pdf-standard-hint">Стандарт не используется. Доступны версии PDF 1.3–1.7.</p>
       </div>
       <div class="stack" id="tiff-options" hidden>
         <select id="tiff-ppi" aria-label="Разрешение TIFF">
@@ -544,7 +554,8 @@
     const tiffLzwOption = document.getElementById('tiff-lzw-option');
     const tiffLzwCheckbox = document.getElementById('tiff-lzw');
     const pdfVersionSelect = document.getElementById('pdf-version');
-    const pdfStandardSelect = null;
+    const pdfStandardSelect = document.getElementById('pdf-standard');
+    const pdfStandardHint = document.getElementById('pdf-standard-hint');
     const pdfColorProfileSelect = null;
     const tiffCompressionSelect = null;
     const tiffAntialiasSelect = null;
@@ -601,11 +612,60 @@
     });
 
     if (pdfVersionSelect) {
-      pdfVersionSelect.addEventListener('change', () => {
-        if (!isApplyingPreferences) {
-          post('update-preferences', { pdfVersion: pdfVersionSelect.value });
+      function updatePdfStandardHint(standardValue) {
+        switch (standardValue) {
+          case 'pdfx-1a':
+            pdfStandardHint.textContent = 'PDF/X-1a требует печатного CMYK без прозрачности. Версия PDF будет не ниже 1.3.';
+            break;
+          case 'pdfx-3':
+            pdfStandardHint.textContent = 'PDF/X-3 допускает управляемый цвет. Версия PDF будет не ниже 1.3.';
+            break;
+          case 'pdfx-4':
+            pdfStandardHint.textContent = 'PDF/X-4 поддерживает прозрачность и требует версию PDF 1.6. Используется профиль CMYK.';
+            break;
+          default:
+            pdfStandardHint.textContent = 'Стандарт не используется. Доступны версии PDF 1.3–1.7.';
+            break;
         }
+      }
+
+      function enforcePdfVersionForStandard() {
+        if (!pdfVersionSelect || !pdfStandardSelect) {
+          return;
+        }
+        const standardValue = pdfStandardSelect.value || 'none';
+        const version = parseFloat(pdfVersionSelect.value);
+        let minVersion = 1.3;
+        if (standardValue === 'pdfx-4') {
+          minVersion = 1.6;
+        }
+        if (standardValue !== 'none' && version < minVersion - 1e-6) {
+          const clamped = minVersion.toFixed(1);
+          pdfVersionSelect.value = clamped;
+          if (!isApplyingPreferences) {
+            post('update-preferences', { pdfVersion: clamped });
+          }
+        }
+      }
+
+      pdfVersionSelect.addEventListener('change', () => {
+        if (isApplyingPreferences) {
+          return;
+        }
+        enforcePdfVersionForStandard();
+        post('update-preferences', { pdfVersion: pdfVersionSelect.value });
       });
+
+      if (pdfStandardSelect) {
+        pdfStandardSelect.addEventListener('change', () => {
+          if (isApplyingPreferences) {
+            return;
+          }
+          enforcePdfVersionForStandard();
+          updatePdfStandardHint(pdfStandardSelect.value);
+          post('update-preferences', { pdfStandard: pdfStandardSelect.value, pdfVersion: pdfVersionSelect.value });
+        });
+      }
     }
 
     tiffPpiSelect.addEventListener('change', () => {
@@ -1482,6 +1542,11 @@
           if (pdfVersionSelect && typeof pdfVersion === 'string') {
             pdfVersionSelect.value = pdfVersion;
           }
+          if (pdfStandardSelect && typeof message.pdfStandard === 'string') {
+            pdfStandardSelect.value = message.pdfStandard;
+          }
+          updatePdfStandardHint(pdfStandardSelect ? pdfStandardSelect.value : 'none');
+          enforcePdfVersionForStandard();
           if (typeof tiffPpi === 'number') {
             tiffPpiSelect.value = String(tiffPpi);
           }

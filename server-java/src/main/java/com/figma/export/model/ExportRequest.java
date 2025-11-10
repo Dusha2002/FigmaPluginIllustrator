@@ -23,6 +23,9 @@ public class ExportRequest {
     @Pattern(regexp = "1\\.[3-7]", message = "pdfVersion должен быть от 1.3 до 1.7")
     private String pdfVersion = "1.4";
 
+    @Pattern(regexp = "(?i)none|pdfx-1a|pdfx-3|pdfx-4", message = "pdfStandard должен быть none, pdfx-1a, pdfx-3 или pdfx-4")
+    private String pdfStandard = "none";
+
     @Min(1)
     private Integer widthPx;
 
@@ -68,6 +71,14 @@ public class ExportRequest {
 
     public void setPdfVersion(String pdfVersion) {
         this.pdfVersion = pdfVersion;
+    }
+
+    public String getPdfStandard() {
+        return pdfStandard;
+    }
+
+    public void setPdfStandard(String pdfStandard) {
+        this.pdfStandard = pdfStandard;
     }
 
     public Integer getWidthPx() {

@@ -8,16 +8,26 @@ import com.figma.export.model.ExportResponse;
 import com.figma.export.model.UploadType;
 import com.figma.export.pdf.CmykPdfColorMapper;
 import com.figma.export.pdf.OpenPdfFallbackService;
+import com.figma.export.pdf.PdfStandard;
 import com.figma.export.svg.SvgRenderer;
 import com.figma.export.svg.SvgRenderer.SvgRenderResult;
 import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.cos.COSArray;
+import org.apache.pdfbox.cos.COSBase;
+import org.apache.pdfbox.cos.COSDictionary;
+import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.cos.COSNumber;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDDocumentCatalog;
 import org.apache.pdfbox.pdmodel.PDDocumentInformation;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.graphics.PDXObject;
 import org.apache.pdfbox.pdmodel.graphics.color.PDOutputIntent;
+import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
+import org.apache.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState;
 import org.apache.pdfbox.pdmodel.graphics.image.JPEGFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
@@ -38,13 +48,17 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Calendar;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.TimeZone;
 
 @Service
 public class ExportService {
 
     private static final Logger logger = LoggerFactory.getLogger(ExportService.class);
+    private static final COSName COS_NAME_LOWER_CA = COSName.getPDFName("ca");
 
     private static final String FORMAT_PDF = "pdf";
     private static final String FORMAT_TIFF = "tiff";
@@ -104,6 +118,12 @@ public class ExportService {
         }
     }
 
+    private String resolvePdfVersionText(String requestedVersionText, PdfStandard pdfStandard) {
+        float requested = parsePdfVersion(requestedVersionText);
+        float resolved = pdfStandard.resolvePdfVersion(requested);
+        return formatPdfVersion(resolved);
+    }
+
     private String formatPdfVersion(float version) {
         return String.format(Locale.ROOT, "%.1f", version);
     }
@@ -132,9 +152,12 @@ public class ExportService {
     private ExportResponse convertMultipleToPdf(java.util.List<org.springframework.web.multipart.MultipartFile> files, ExportRequest request, String baseName) throws IOException {
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
-        
+        PdfStandard pdfStandard = PdfStandard.fromRequest(request.getPdfStandard());
+        String resolvedVersionText = resolvePdfVersionText(request.getPdfVersion(), pdfStandard);
+        boolean allVector = true;
+
         logger.info("Начало объединения {} файлов в PDF: baseName={}, dpi={}", files.size(), baseName, dpi);
-        
+
         // Создаём список временных байтовых массивов готовых PDF
         java.util.List<byte[]> pdfBytes = new java.util.ArrayList<>();
         
@@ -157,17 +180,20 @@ public class ExportService {
                 itemRequest.setFormat(request.getFormat());
                 itemRequest.setName(baseName + "_" + i);
                 itemRequest.setPpi(request.getPpi());
-                itemRequest.setPdfVersion(request.getPdfVersion());
+                itemRequest.setPdfVersion(resolvedVersionText);
+                itemRequest.setPdfStandard(request.getPdfStandard());
                 itemRequest.setWidthPx(widthPx);
                 itemRequest.setHeightPx(heightPx);
-                
+
                 // Создаём PDF-документ для текущего элемента
                 PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, itemRequest, dpi, colorProfile);
+                allVector = allVector && sourceResult.vector();
                 PDDocument sourceDocument = sourceResult.document();
-                
+
                 try {
                     // Применяем настройки PDF к каждому документу ДО объединения
-                    applyPdfDefaults(sourceDocument, colorProfile, itemRequest.getPdfVersion());
+                    applyPdfDefaults(sourceDocument, colorProfile, resolvedVersionText, pdfStandard);
+                    enforcePdfStandard(sourceDocument, sourceResult, pdfStandard, baseName + "_" + i);
                     
                     // Сохраняем готовый документ
                     ByteArrayOutputStream tempStream = new ByteArrayOutputStream();
@@ -191,12 +217,11 @@ public class ExportService {
             merger.mergeDocuments(null);
             
             byte[] finalPdfBytes = mergedStream.toByteArray();
-            mergedStream.close();
-            
             try (PDDocument combinedDocument = Loader.loadPDF(finalPdfBytes)) {
-                applyPdfDefaults(combinedDocument, colorProfile, request.getPdfVersion());
+                applyPdfDefaults(combinedDocument, colorProfile, resolvedVersionText, pdfStandard);
+                enforcePdfStandard(combinedDocument, new PdfDocumentResult(combinedDocument, allVector), pdfStandard, baseName);
                 finalPdfBytes = saveDocument(combinedDocument);
-                finalPdfBytes = ensureRequestedPdfVersion(finalPdfBytes, request.getPdfVersion(), baseName);
+                finalPdfBytes = ensureRequestedPdfVersion(finalPdfBytes, resolvedVersionText, baseName, pdfStandard);
             }
 
             logger.info("PDF объединение завершено: итоговый размер={} bytes ({} МБ)", 
@@ -217,12 +242,14 @@ public class ExportService {
         
         logger.info("Конвертация в PDF: baseName={}, uploadType={}, dpi={}", baseName, uploadType, dpi);
         
+        PdfStandard pdfStandard = PdfStandard.fromRequest(request.getPdfStandard());
+        String resolvedVersionText = resolvePdfVersionText(request.getPdfVersion(), pdfStandard);
         PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi, colorProfile);
         PDDocument sourceDocument = sourceResult.document();
         PDDocument rasterizedDocument = null;
         try {
             PDDocument workingDocument = sourceDocument;
-            
+
             if (!sourceResult.vector()) {
                 logger.info("Документ НЕ векторный - будет растеризован в CMYK");
                 rasterizedDocument = rasterizeToCmyk(workingDocument, dpi, colorProfile);
@@ -231,10 +258,11 @@ public class ExportService {
                 logger.info("Документ ВЕКТОРНЫЙ - сохраняется как есть с CMYK color mapping");
             }
 
-            applyPdfDefaults(workingDocument, colorProfile, request.getPdfVersion());
+            applyPdfDefaults(workingDocument, colorProfile, resolvedVersionText, pdfStandard);
+            enforcePdfStandard(workingDocument, sourceResult, pdfStandard, baseName);
             byte[] pdfBytes = saveDocument(workingDocument);
-            pdfBytes = ensureRequestedPdfVersion(pdfBytes, request.getPdfVersion(), baseName);
-            
+            pdfBytes = ensureRequestedPdfVersion(pdfBytes, resolvedVersionText, baseName, pdfStandard);
+
             logger.info("PDF создан: size={} bytes ({} МБ)", 
                 pdfBytes.length, String.format("%.2f", pdfBytes.length / (1024d * 1024d)));
             
@@ -461,7 +489,7 @@ public class ExportService {
         }
     }
 
-    private void applyPdfDefaults(PDDocument document, ColorProfile profile, String pdfVersion) throws IOException {
+    private void applyPdfDefaults(PDDocument document, ColorProfile profile, String pdfVersion, PdfStandard pdfStandard) throws IOException {
         float normalizedVersion = parsePdfVersion(pdfVersion);
         document.setVersion(normalizedVersion);
         PDDocumentInformation information = document.getDocumentInformation();
@@ -471,7 +499,19 @@ public class ExportService {
         }
         information.setProducer("Figma Export Server");
         information.setCreator("Figma Export Server");
-        information.setTrapped("False");
+        if (pdfStandard.isPdfx()) {
+            setTrapped(information, true);
+            if (pdfStandard.getPdfxVersion() != null) {
+                information.setCustomMetadataValue("GTS_PDFXVersion", pdfStandard.getPdfxVersion());
+            }
+            if (pdfStandard.getPdfxConformance() != null) {
+                information.setCustomMetadataValue("GTS_PDFXConformance", pdfStandard.getPdfxConformance());
+            }
+        } else {
+            setTrapped(information, false);
+            information.getCOSObject().removeItem(COSName.getPDFName("GTS_PDFXVersion"));
+            information.getCOSObject().removeItem(COSName.getPDFName("GTS_PDFXConformance"));
+        }
         Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
         calendar.setTimeInMillis(Instant.now().toEpochMilli());
         information.setCreationDate(calendar);
@@ -481,6 +521,7 @@ public class ExportService {
         if (catalog != null) {
             String catalogVersion = normalizedVersion <= 1.3f ? null : formatPdfVersion(normalizedVersion);
             catalog.setVersion(catalogVersion);
+            markCatalogAsTagged(catalog);
         }
         var outputIntents = catalog.getOutputIntents();
         if (outputIntents != null) {
@@ -496,6 +537,161 @@ public class ExportService {
         logger.info("Применена версия PDF: header={}, catalog={}",
                 String.format(Locale.ROOT, "%.1f", document.getVersion()),
                 catalog != null ? catalog.getVersion() : "<none>");
+    }
+
+    private void enforcePdfStandard(PDDocument document, PdfDocumentResult sourceResult, PdfStandard pdfStandard, String baseName) {
+        if (!pdfStandard.isPdfx()) {
+            return;
+        }
+
+        if (pdfStandard.forbidsTransparency()) {
+            ensureNoTransparency(document, baseName);
+        }
+
+        PDDocumentInformation info = document.getDocumentInformation();
+        if (info == null) {
+            info = new PDDocumentInformation();
+            document.setDocumentInformation(info);
+        }
+        setTrapped(info, true);
+        if (pdfStandard.getPdfxVersion() != null) {
+            info.setCustomMetadataValue("GTS_PDFXVersion", pdfStandard.getPdfxVersion());
+        }
+        if (pdfStandard.getPdfxConformance() != null) {
+            info.setCustomMetadataValue("GTS_PDFXConformance", pdfStandard.getPdfxConformance());
+        }
+
+        PDDocumentCatalog catalog = document.getDocumentCatalog();
+        markCatalogAsTagged(catalog);
+
+        logger.info("PDF/X требования применены: стандарт={}, документ={} (vector={})",
+                pdfStandard.name(), baseName, sourceResult.vector());
+    }
+
+    private void ensureNoTransparency(PDDocument document, String baseName) {
+        Set<COSDictionary> visitedResources = new HashSet<>();
+        int pageIndex = 0;
+        for (PDPage page : document.getPages()) {
+            ensureNoTransparency(page.getResources(), baseName, pageIndex + 1, visitedResources);
+            pageIndex++;
+        }
+    }
+
+    private void ensureNoTransparency(PDResources resources, String baseName, int pageNumber, Set<COSDictionary> visitedResources) {
+        if (resources == null) {
+            return;
+        }
+        COSDictionary resDict = resources.getCOSObject();
+        if (visitedResources.contains(resDict)) {
+            return;
+        }
+        visitedResources.add(resDict);
+
+        Iterable<COSName> stateNames = resources.getExtGStateNames();
+        if (stateNames != null) {
+            for (COSName name : stateNames) {
+                PDExtendedGraphicsState graphicsState = resources.getExtGState(name);
+                if (graphicsState == null) {
+                    continue;
+                }
+                COSDictionary stateDict = graphicsState.getCOSObject();
+                Float fillAlpha = readAlpha(stateDict, COS_NAME_LOWER_CA);
+                Float strokeAlpha = readAlpha(stateDict, COSName.CA);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("PDF/X проверка alpha: base={}, page={}, gs={}, fillAlpha={}, strokeAlpha={}",
+                            baseName, pageNumber, name.getName(), fillAlpha, strokeAlpha);
+                }
+                if ((fillAlpha != null && fillAlpha < 0.999f) || (strokeAlpha != null && strokeAlpha < 0.999f)) {
+                    throw new ConversionException("PDF/X стандарт не допускает прозрачность (страница "
+                            + pageNumber + ", документ " + baseName + ").");
+                }
+                Set<String> blendModes = readBlendModes(stateDict);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("PDF/X проверка blend mode: base={}, page={}, gs={}, blendModes={}",
+                            baseName, pageNumber, name.getName(), blendModes);
+                }
+                if (hasDisallowedBlendMode(blendModes)) {
+                    throw new ConversionException("PDF/X стандарт не допускает нестандартные режимы наложения (страница "
+                            + pageNumber + ", документ " + baseName + ", режимы=" + blendModes + ").");
+                }
+                COSBase softMask = stateDict.getDictionaryObject(COSName.SMASK);
+                if (softMask != null && !COSName.NONE.equals(softMask)) {
+                    throw new ConversionException("PDF/X стандарт не допускает soft mask (страница "
+                            + pageNumber + ", документ " + baseName + ", softMask=" + softMask + ").");
+                }
+            }
+        }
+
+        Iterable<COSName> xObjectNames = resources.getXObjectNames();
+        if (xObjectNames != null) {
+            for (COSName xObjectName : xObjectNames) {
+                try {
+                    PDXObject xObject = resources.getXObject(xObjectName);
+                    if (xObject instanceof PDFormXObject form) {
+                        ensureNoTransparency(form.getResources(), baseName, pageNumber, visitedResources);
+                    }
+                } catch (IOException e) {
+                    throw new ConversionException("Не удалось проверить XObject на прозрачность (страница "
+                            + pageNumber + ", объект " + xObjectName.getName() + ").", e);
+                }
+            }
+        }
+    }
+
+    private Float readAlpha(COSDictionary stateDict, COSName key) {
+        COSBase value = stateDict.getDictionaryObject(key);
+        if (value instanceof COSNumber number) {
+            return number.floatValue();
+        }
+        return null;
+    }
+
+    private Set<String> readBlendModes(COSDictionary stateDict) {
+        Set<String> modes = new LinkedHashSet<>();
+        COSBase blendBase = stateDict.getDictionaryObject(COSName.BM);
+        if (blendBase instanceof COSName name) {
+            modes.add(name.getName());
+        } else if (blendBase instanceof COSArray array) {
+            for (COSBase entry : (COSArray) array) {
+                if (entry instanceof COSName name) {
+                    modes.add(name.getName());
+                }
+            }
+        }
+        return modes;
+    }
+
+    private boolean hasDisallowedBlendMode(Set<String> blendModes) {
+        if (blendModes.isEmpty()) {
+            return false;
+        }
+        for (String mode : blendModes) {
+            // Разрешаем Normal и Compatible (служебный режим PDFBox)
+            if ("Normal".equalsIgnoreCase(mode) || "Compatible".equalsIgnoreCase(mode)) {
+                continue;
+            }
+            return true; // Любой другой режим запрещён
+        }
+        return false;
+    }
+
+    private void markCatalogAsTagged(PDDocumentCatalog catalog) {
+        if (catalog == null) {
+            return;
+        }
+        COSDictionary catalogDict = catalog.getCOSObject();
+        COSDictionary markInfo = (COSDictionary) catalogDict.getDictionaryObject(COSName.MARK_INFO);
+        if (markInfo == null) {
+            markInfo = new COSDictionary();
+            catalogDict.setItem(COSName.MARK_INFO, markInfo);
+        }
+        markInfo.setBoolean(COSName.getPDFName("Marked"), true);
+    }
+
+    private void setTrapped(PDDocumentInformation info, boolean trapped) {
+        String value = trapped ? "True" : "False";
+        // Устанавливаем через COSObject для совместимости с PDFBox 3
+        info.getCOSObject().setName(COSName.TRAPPED, value);
     }
 
     private float parsePdfVersion(String version) {
@@ -524,13 +720,20 @@ public class ExportService {
         }
     }
 
-    private byte[] ensureRequestedPdfVersion(byte[] pdfBytes, String requestedVersionText, String baseName) {
+    private byte[] ensureRequestedPdfVersion(byte[] pdfBytes, String requestedVersionText, String baseName, PdfStandard pdfStandard) {
         float requestedVersion = parsePdfVersion(requestedVersionText);
         float actualVersion = extractPdfHeaderVersion(pdfBytes);
         if (requestedVersion <= 0f || actualVersion <= 0f) {
             return pdfBytes;
         }
         if (Math.abs(actualVersion - requestedVersion) <= 0.05f) {
+            return pdfBytes;
+        }
+
+        // Для PDF/X не используем OpenPDF fallback, чтобы сохранить метаданные
+        if (pdfStandard.isPdfx()) {
+            logger.info("PDF/X: версия {} отличается от запрошенной {}, но OpenPDF fallback пропущен для сохранения метаданных (документ: {})",
+                    String.format(Locale.ROOT, "%.1f", actualVersion), formatPdfVersion(requestedVersion), baseName);
             return pdfBytes;
         }
 
