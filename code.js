@@ -530,16 +530,22 @@ async function exportSelection(settings) {
     }
     const bytes = await node.exportAsync(exportSettings);
     const baseName = sanitizeName(node.name, `export_${i + 1}`);
-    const bounds = node.absoluteRenderBounds;
+    // Используем absoluteBoundingBox для более надёжного определения размеров
+    // absoluteRenderBounds может давать очень маленькие значения для элементов с эффектами
+    const bounds = node.absoluteBoundingBox || node.absoluteRenderBounds;
     const baseWidth = bounds ? bounds.width : (node.width || 0);
     const baseHeight = bounds ? bounds.height : (node.height || 0);
-    // Для TIFF масштабируем согласно PPI, для PDF - согласно exportScale
+    
+    // Для TIFF и PDF масштабируем согласно exportScale
     const widthPx = exportFormat === 'tiff' 
       ? Math.max(1, Math.round(baseWidth * exportScale))
       : Math.max(1, Math.round(baseWidth * exportScale));
     const heightPx = exportFormat === 'tiff'
       ? Math.max(1, Math.round(baseHeight * exportScale))
       : Math.max(1, Math.round(baseHeight * exportScale));
+    
+    // Логирование для диагностики проблем с размерами
+    console.log(`[Export] ${baseName}: bounds=${baseWidth}x${baseHeight}, scale=${exportScale}, target=${widthPx}x${heightPx}, format=${exportSettings.format}`);
     exported.push({
       name: baseName,
       data: bytes,

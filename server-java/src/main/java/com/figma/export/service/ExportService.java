@@ -441,19 +441,31 @@ public class ExportService {
 
         int targetWidth = positiveOrDefault(request.getWidthPx(), image.getWidth());
         int targetHeight = positiveOrDefault(request.getHeightPx(), image.getHeight());
+        logger.info("Создание PDF из изображения: исходный размер={}x{}, целевой={}x{}", 
+                image.getWidth(), image.getHeight(), targetWidth, targetHeight);
+        
         if (image.getWidth() != targetWidth || image.getHeight() != targetHeight) {
             image = imageProcessingService.scaleImage(image, targetWidth, targetHeight);
+            logger.info("Изображение масштабировано до {}x{}", image.getWidth(), image.getHeight());
         }
 
         BufferedImage argb = imageProcessingService.ensureArgb(image);
         PDDocument document = new PDDocument();
-        PDRectangle pageSize = new PDRectangle(pxToPoints(argb.getWidth()), pxToPoints(argb.getHeight()));
+        float pageWidth = pxToPoints(argb.getWidth());
+        float pageHeight = pxToPoints(argb.getHeight());
+        PDRectangle pageSize = new PDRectangle(pageWidth, pageHeight);
         PDPage page = new PDPage(pageSize);
         document.addPage(page);
 
+        logger.info("Размер страницы PDF: {}x{} points ({}x{} px)", 
+                pageWidth, pageHeight, argb.getWidth(), argb.getHeight());
+
         PDImageXObject imageObject = LosslessFactory.createFromImage(document, argb);
+        logger.info("PDImageXObject создан: размер={}x{}", imageObject.getWidth(), imageObject.getHeight());
+        
         try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
-            contentStream.drawImage(imageObject, 0, 0, pageSize.getWidth(), pageSize.getHeight());
+            contentStream.drawImage(imageObject, 0, 0, pageWidth, pageHeight);
+            logger.info("Изображение отрисовано в PDF: позиция=(0,0), размер={}x{} points", pageWidth, pageHeight);
         }
         return document;
     }
@@ -462,20 +474,31 @@ public class ExportService {
         PDDocument result = new PDDocument();
         PDFRenderer renderer = new PDFRenderer(source);
         int pageCount = source.getNumberOfPages();
+        logger.info("Растеризация в CMYK: страниц={}, dpi={}", pageCount, dpi);
+        
         for (int i = 0; i < pageCount; i++) {
             PDPage originalPage = source.getPage(i);
             PDRectangle mediaBox = originalPage.getMediaBox();
+            logger.info("Страница {}: MediaBox={}x{} points", i + 1, mediaBox.getWidth(), mediaBox.getHeight());
+            
             BufferedImage rendered = renderer.renderImageWithDPI(i, dpi, ImageType.ARGB);
+            logger.info("Страница {} отрендерена: размер={}x{} px", i + 1, rendered.getWidth(), rendered.getHeight());
+            
             BufferedImage flattened = imageProcessingService.flattenTransparency(rendered, Color.WHITE);
             BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, profile);
             byte[] jpegBytes = jpegWriter.writeCmyk(cmyk, 0.92f, dpi);
+            logger.info("Страница {} конвертирована в CMYK JPEG: размер={} bytes", i + 1, jpegBytes.length);
 
             PDPage page = new PDPage(new PDRectangle(mediaBox.getWidth(), mediaBox.getHeight()));
             result.addPage(page);
 
             PDImageXObject imageXObject = JPEGFactory.createFromStream(result, new ByteArrayInputStream(jpegBytes));
+            logger.info("Страница {}: PDImageXObject создан: размер={}x{}", i + 1, imageXObject.getWidth(), imageXObject.getHeight());
+            
             try (PDPageContentStream contentStream = new PDPageContentStream(result, page)) {
                 contentStream.drawImage(imageXObject, 0, 0, mediaBox.getWidth(), mediaBox.getHeight());
+                logger.info("Страница {}: изображение отрисовано: позиция=(0,0), размер={}x{} points", 
+                        i + 1, mediaBox.getWidth(), mediaBox.getHeight());
             }
         }
         return result;
