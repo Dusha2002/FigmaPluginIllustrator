@@ -199,18 +199,29 @@ public class ExportService {
     private ExportResponse convertToPdf(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
+        
+        logger.info("Конвертация в PDF: baseName={}, uploadType={}, dpi={}", baseName, uploadType, dpi);
+        
         PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi, colorProfile);
         PDDocument sourceDocument = sourceResult.document();
         PDDocument rasterizedDocument = null;
         try {
             PDDocument workingDocument = sourceDocument;
+            
             if (!sourceResult.vector()) {
+                logger.info("Документ НЕ векторный - будет растеризован в CMYK");
                 rasterizedDocument = rasterizeToCmyk(workingDocument, dpi, colorProfile);
                 workingDocument = rasterizedDocument;
+            } else {
+                logger.info("Документ ВЕКТОРНЫЙ - сохраняется как есть с CMYK color mapping");
             }
 
             applyPdfDefaults(workingDocument, colorProfile);
             byte[] pdfBytes = saveDocument(workingDocument);
+            
+            logger.info("PDF создан: size={} bytes ({} МБ)", 
+                pdfBytes.length, String.format("%.2f", pdfBytes.length / (1024d * 1024d)));
+            
             ContentDisposition disposition = ContentDisposition.attachment()
                     .filename(baseName + ".pdf", StandardCharsets.UTF_8)
                     .build();
@@ -330,22 +341,34 @@ public class ExportService {
     }
 
     private PdfDocumentResult createPdfFromSvg(byte[] data, ExportRequest request, ColorProfile colorProfile) throws IOException {
+        logger.info("Создание векторного PDF из SVG: size={} bytes, width={}px, height={}px", 
+            data.length, request.getWidthPx(), request.getHeightPx());
+        
         PDDocument document = new PDDocument();
         try {
             int targetWidthPx = positiveOrDefault(request.getWidthPx(), 0);
             int targetHeightPx = positiveOrDefault(request.getHeightPx(), 0);
             float targetWidthPt = targetWidthPx > 0 ? pxToPoints(targetWidthPx) : 0f;
             float targetHeightPt = targetHeightPx > 0 ? pxToPoints(targetHeightPx) : 0f;
+            
+            logger.info("Размеры в points: width={}pt, height={}pt", targetWidthPt, targetHeightPt);
+            
             CmykPdfColorMapper colorMapper = colorProfile != null
                     ? new CmykPdfColorMapper(colorProfile.getColorSpace())
                     : null;
+            
             if (colorMapper != null) {
+                logger.info("Используется CMYK color mapper с профилем: {}", colorProfile.getDisplayName());
                 svgRenderer.renderSvg(data, document, targetWidthPt, targetHeightPt, colorMapper);
             } else {
+                logger.warn("CMYK color mapper НЕ используется - цвета могут быть в RGB!");
                 svgRenderer.renderSvg(data, document, targetWidthPt, targetHeightPt);
             }
+            
+            logger.info("SVG успешно отрендерен как векторный PDF");
             return new PdfDocumentResult(document, true);
         } catch (IOException | RuntimeException ex) {
+            logger.error("Ошибка при создании PDF из SVG", ex);
             document.close();
             if (ex instanceof IOException io) {
                 throw io;
