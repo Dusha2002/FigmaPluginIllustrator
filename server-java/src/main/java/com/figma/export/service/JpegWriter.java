@@ -40,7 +40,6 @@ public class JpegWriter {
             IIOMetadata metadata = writer.getDefaultImageMetadata(new ImageTypeSpecifier(image), writeParam);
             resolutionMetadata.apply(metadata, ppi);
             writer.write(null, new IIOImage(image, null, metadata), writeParam);
-            writer.dispose();
             return buffer.toByteArray();
         } finally {
             writer.dispose();

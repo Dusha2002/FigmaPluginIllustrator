@@ -10,13 +10,19 @@ import com.figma.export.pdf.CmykPdfColorMapper;
 import com.figma.export.svg.SvgRenderer;
 import com.figma.export.svg.SvgRenderer.SvgRenderResult;
 import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.cos.COSDictionary;
+import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDDocumentCatalog;
 import org.apache.pdfbox.pdmodel.PDDocumentInformation;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.graphics.PDXObject;
+import org.apache.pdfbox.pdmodel.graphics.color.PDColorSpace;
 import org.apache.pdfbox.pdmodel.graphics.color.PDOutputIntent;
+import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.JPEGFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
@@ -37,7 +43,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Calendar;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Locale;
+import java.util.Set;
 import java.util.TimeZone;
 
 @Service
@@ -159,6 +168,7 @@ public class ExportService {
                 }
             }
             
+            convertEmbeddedImagesToCmyk(combinedDocument, colorProfile, dpi);
             // Применяем настройки PDF
             applyPdfDefaults(combinedDocument, colorProfile);
             
@@ -183,6 +193,9 @@ public class ExportService {
             if (!sourceResult.vector()) {
                 rasterizedDocument = rasterizeToCmyk(workingDocument, dpi, colorProfile);
                 workingDocument = rasterizedDocument;
+            }
+            if (uploadType == UploadType.PDF) {
+                convertEmbeddedImagesToCmyk(workingDocument, colorProfile, dpi);
             }
 
             applyPdfDefaults(workingDocument, colorProfile);
@@ -388,6 +401,108 @@ public class ExportService {
             }
         }
         return result;
+    }
+
+    private void convertEmbeddedImagesToCmyk(PDDocument document, ColorProfile profile, int dpi) throws IOException {
+        if (document == null || profile == null) {
+            return;
+        }
+        Set<COSDictionary> processed = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (PDPage page : document.getPages()) {
+            convertResourcesToCmyk(document, page.getResources(), profile, dpi, processed);
+        }
+    }
+
+    private void convertResourcesToCmyk(PDDocument document,
+                                        PDResources resources,
+                                        ColorProfile profile,
+                                        int dpi,
+                                        Set<COSDictionary> processed) throws IOException {
+        if (resources == null) {
+            return;
+        }
+        for (COSName name : resources.getXObjectNames()) {
+            PDXObject xobject = resources.getXObject(name);
+            if (xobject instanceof PDImageXObject image) {
+                convertImageXObject(document, resources, name, image, profile, dpi, processed);
+            } else if (xobject instanceof PDFormXObject form) {
+                convertResourcesToCmyk(document, form.getResources(), profile, dpi, processed);
+            }
+        }
+    }
+
+    private void convertImageXObject(PDDocument document,
+                                     PDResources resources,
+                                     COSName name,
+                                     PDImageXObject image,
+                                     ColorProfile profile,
+                                     int dpi,
+                                     Set<COSDictionary> processed) throws IOException {
+        if (image == null || image.isStencil()) {
+            return;
+        }
+        COSDictionary cosObject = image.getCOSObject();
+        if (processed.contains(cosObject)) {
+            return;
+        }
+        processed.add(cosObject);
+
+        PDColorSpace colorSpace;
+        try {
+            colorSpace = image.getColorSpace();
+            if (colorSpace != null && colorSpace.getNumberOfComponents() == 4) {
+                return;
+            }
+        } catch (IOException ex) {
+            logger.warn("Не удалось определить цветовое пространство изображения, пропуск конвертации", ex);
+            return;
+        }
+
+        BufferedImage buffered;
+        try {
+            buffered = image.getImage();
+        } catch (IOException ex) {
+            logger.warn("Не удалось загрузить данные изображения для конвертации в CMYK", ex);
+            return;
+        }
+        if (buffered == null) {
+            return;
+        }
+
+        BufferedImage prepared = imageProcessingService.ensureArgb(buffered);
+        BufferedImage flattened = imageProcessingService.flattenTransparency(prepared, Color.WHITE);
+        BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, profile);
+        byte[] jpegBytes = jpegWriter.writeCmyk(cmyk, 0.92f, dpi);
+
+        buffered.flush();
+        if (prepared != buffered) {
+            prepared.flush();
+        }
+        if (flattened != prepared) {
+            flattened.flush();
+        }
+
+        PDImageXObject converted = JPEGFactory.createFromStream(document, new ByteArrayInputStream(jpegBytes));
+        preserveImageAncillaries(image, converted);
+        resources.put(name, converted);
+    }
+
+    private void preserveImageAncillaries(PDImageXObject original, PDImageXObject replacement) {
+        if (original == null || replacement == null) {
+            return;
+        }
+        COSDictionary originalDict = original.getCOSObject();
+        COSDictionary replacementDict = replacement.getCOSObject();
+        copyIfPresent(originalDict, replacementDict, COSName.SMASK);
+        copyIfPresent(originalDict, replacementDict, COSName.MASK);
+        copyIfPresent(originalDict, replacementDict, COSName.DECODE);
+        copyIfPresent(originalDict, replacementDict, COSName.IMAGE_MASK);
+    }
+
+    private void copyIfPresent(COSDictionary source, COSDictionary target, COSName key) {
+        if (source.containsKey(key)) {
+            target.setItem(key, source.getDictionaryObject(key));
+        }
     }
 
     private BufferedImage readBufferedImage(byte[] data) throws IOException {
