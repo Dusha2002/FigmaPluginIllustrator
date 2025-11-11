@@ -264,7 +264,8 @@ public class TiffWriter {
 
         int samplesPerPixel = image.getSampleModel().getNumBands();
         int bytesPerRow = Math.max(1, image.getWidth() * samplesPerPixel);
-        int compressionTarget = 60 * 1024; // целим в ~60 КБ после сжатия
+        // Целим в ~32 КБ несжатых данных, что даст ~16-24 КБ после LZW
+        int compressionTarget = 32 * 1024;
         int limitBySize = Math.max(1, compressionTarget / bytesPerRow);
 
         int target = Math.min(DEFAULT_ROWS_PER_STRIP, Math.min(maxRows, limitBySize));
