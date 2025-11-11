@@ -6,14 +6,22 @@ import com.figma.export.exception.ConversionException;
 import com.figma.export.model.ExportRequest;
 import com.figma.export.model.ExportResponse;
 import com.figma.export.model.UploadType;
+import com.figma.export.pdf.CmykPdfColorMapper;
+import com.figma.export.svg.SvgRenderer;
+import com.figma.export.svg.SvgRenderer.SvgRenderResult;
 import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.io.RandomAccessRead;
-import org.apache.pdfbox.io.RandomAccessReadBuffer;
-import org.apache.pdfbox.multipdf.PDFMergerUtility;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDDocumentCatalog;
 import org.apache.pdfbox.pdmodel.PDDocumentInformation;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.graphics.color.PDOutputIntent;
+import org.apache.pdfbox.pdmodel.graphics.image.JPEGFactory;
+import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.apache.pdfbox.rendering.ImageType;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ContentDisposition;
@@ -39,25 +47,33 @@ public class ExportService {
 
     private static final String FORMAT_PDF = "pdf";
     private static final String FORMAT_TIFF = "tiff";
+    private static final int DEFAULT_PPI = 72;
     private static final int DEFAULT_TIFF_PPI = 300;
+    private static final double PX_TO_POINT = 72d / DEFAULT_PPI;
     private static final int MAX_TIFF_DIMENSION = 6000;
     private static final long MAX_TIFF_TOTAL_PIXELS = 36_000_000L;
     private static final String TIFF_QUALITY_STANDARD = "standard";
     private static final String TIFF_QUALITY_SUPERSAMPLE = "supersample";
     private static final String TIFF_QUALITY_TEXT_HINT = "texthint";
 
+    private final SvgRenderer svgRenderer;
     private final ImageProcessingService imageProcessingService;
     private final ImageInputLoader imageInputLoader;
     private final TiffWriter tiffWriter;
+    private final JpegWriter jpegWriter;
     private final ColorProfileManager colorProfileManager;
 
-    public ExportService(ImageProcessingService imageProcessingService,
+    public ExportService(SvgRenderer svgRenderer,
+                         ImageProcessingService imageProcessingService,
                          ImageInputLoader imageInputLoader,
                          TiffWriter tiffWriter,
+                         JpegWriter jpegWriter,
                          ColorProfileManager colorProfileManager) {
+        this.svgRenderer = svgRenderer;
         this.imageProcessingService = imageProcessingService;
         this.imageInputLoader = imageInputLoader;
         this.tiffWriter = tiffWriter;
+        this.jpegWriter = jpegWriter;
         this.colorProfileManager = colorProfileManager;
     }
 
@@ -107,57 +123,79 @@ public class ExportService {
 
     private ExportResponse convertMultipleToPdf(java.util.List<org.springframework.web.multipart.MultipartFile> files, ExportRequest request, String baseName) throws IOException {
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
-        PDFMergerUtility mergerUtility = new PDFMergerUtility();
-        ByteArrayOutputStream destination = new ByteArrayOutputStream();
-        mergerUtility.setDestinationStream(destination);
-        java.util.List<RandomAccessRead> preparedSources = new java.util.ArrayList<>();
+        int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
+        
+        PDDocument combinedDocument = new PDDocument();
         try {
             for (int i = 0; i < files.size(); i++) {
                 org.springframework.web.multipart.MultipartFile file = files.get(i);
                 byte[] data = file.getBytes();
                 UploadType uploadType = detectUploadType(file);
-                if (uploadType != UploadType.PDF) {
-                    throw new ConversionException("Для объединения PDF необходимо загружать PDF-файлы.");
-                }
-
-                try (PDDocument document = loadPdfDocument(data)) {
-                    applyPdfDefaults(document, colorProfile);
-                    byte[] prepared = saveDocument(document);
-                    RandomAccessReadBuffer sourceBuffer = new RandomAccessReadBuffer(prepared);
-                    preparedSources.add(sourceBuffer);
-                    mergerUtility.addSource(sourceBuffer);
+                
+                // Получаем размеры для текущего элемента
+                Integer widthPx = request.getWidthPx(i);
+                Integer heightPx = request.getHeightPx(i);
+                
+                // Создаём временный request для текущего элемента
+                ExportRequest itemRequest = new ExportRequest();
+                itemRequest.setFormat(request.getFormat());
+                itemRequest.setName(baseName + "_" + i);
+                itemRequest.setPpi(request.getPpi());
+                itemRequest.setWidthPx(widthPx);
+                itemRequest.setHeightPx(heightPx);
+                
+                // Создаём PDF-документ для текущего элемента
+                PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, itemRequest, dpi, colorProfile);
+                PDDocument sourceDocument = sourceResult.document();
+                
+                try {
+                    // Копируем страницы из исходного документа в объединённый
+                    for (PDPage page : sourceDocument.getPages()) {
+                        combinedDocument.addPage(page);
+                    }
+                } finally {
+                    // Не закрываем sourceDocument, так как страницы используются в combinedDocument
+                    // sourceDocument.close();
                 }
             }
-
-            mergerUtility.mergeDocuments(null);
-            byte[] pdfBytes = destination.toByteArray();
+            
+            // Применяем настройки PDF
+            applyPdfDefaults(combinedDocument, colorProfile);
+            
+            byte[] pdfBytes = saveDocument(combinedDocument);
             ContentDisposition disposition = ContentDisposition.attachment()
                     .filename(baseName + ".pdf", StandardCharsets.UTF_8)
                     .build();
             return new ExportResponse(pdfBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
         } finally {
-            for (RandomAccessRead source : preparedSources) {
-                try {
-                    source.close();
-                } catch (IOException ignored) {
-                }
-            }
-            destination.close();
+            combinedDocument.close();
         }
     }
 
     private ExportResponse convertToPdf(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
-        if (uploadType != UploadType.PDF) {
-            throw new ConversionException("Для экспорта PDF необходимо прикладывать PDF-файлы.");
-        }
-        try (PDDocument document = loadPdfDocument(data)) {
-            applyPdfDefaults(document, colorProfile);
-            byte[] pdfBytes = saveDocument(document);
+        int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
+        PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi, colorProfile);
+        PDDocument sourceDocument = sourceResult.document();
+        PDDocument rasterizedDocument = null;
+        try {
+            PDDocument workingDocument = sourceDocument;
+            if (!sourceResult.vector()) {
+                rasterizedDocument = rasterizeToCmyk(workingDocument, dpi, colorProfile);
+                workingDocument = rasterizedDocument;
+            }
+
+            applyPdfDefaults(workingDocument, colorProfile);
+            byte[] pdfBytes = saveDocument(workingDocument);
             ContentDisposition disposition = ContentDisposition.attachment()
                     .filename(baseName + ".pdf", StandardCharsets.UTF_8)
                     .build();
             return new ExportResponse(pdfBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
+        } finally {
+            sourceDocument.close();
+            if (rasterizedDocument != null) {
+                rasterizedDocument.close();
+            }
         }
     }
 
@@ -192,29 +230,26 @@ public class ExportService {
         }
 
         boolean supersample = TIFF_QUALITY_SUPERSAMPLE.equals(tiffQuality);
-        int oversampleFactor = supersample ? 4 : (textHint ? 2 : 1);
         if (supersample) {
-            long supersamplePixels = (long) targetWidth * oversampleFactor * (long) targetHeight * oversampleFactor;
-            logger.info("Supersample запрошен: target={}x{}, factor={}, supersample={}x{}, pixels={}",
-                    targetWidth, targetHeight, oversampleFactor, targetWidth * oversampleFactor, targetHeight * oversampleFactor, supersamplePixels);
-            if (targetWidth * oversampleFactor > MAX_TIFF_DIMENSION
-                    || targetHeight * oversampleFactor > MAX_TIFF_DIMENSION
+            long supersamplePixels = (long) targetWidth * 2 * (long) targetHeight * 2;
+            logger.info("Supersample запрошен: target={}x{}, supersample={}x{}, pixels={}", 
+                targetWidth, targetHeight, targetWidth * 2, targetHeight * 2, supersamplePixels);
+            if (targetWidth * 2 > MAX_TIFF_DIMENSION
+                    || targetHeight * 2 > MAX_TIFF_DIMENSION
                     || supersamplePixels > MAX_TIFF_TOTAL_PIXELS) {
-                logger.info("Supersample требует изображение {}x{}, превышающее лимиты. Используется стандартное качество.",
-                        targetWidth * oversampleFactor, targetHeight * oversampleFactor);
+                logger.info("Supersample требует изображение {}x{}, превышающее лимиты. Используется стандартное качество.", targetWidth * 2, targetHeight * 2);
                 supersample = false;
-                oversampleFactor = 1;
             } else {
-                logger.info("Supersample активирован: будет обработка в {}x{}", targetWidth * oversampleFactor, targetHeight * oversampleFactor);
+                logger.info("Supersample активирован: будет обработка в {}x{}", targetWidth * 2, targetHeight * 2);
             }
         }
 
-        int workWidth = targetWidth * oversampleFactor;
-        int workHeight = targetHeight * oversampleFactor;
+        int workWidth = supersample ? targetWidth * 2 : targetWidth;
+        int workHeight = supersample ? targetHeight * 2 : targetHeight;
 
         if (sourceImage.getWidth() != workWidth || sourceImage.getHeight() != workHeight) {
-            sourceImage = imageProcessingService.gammaAwareScale(sourceImage, workWidth, workHeight, textHint);
-            logTiffStage("scaled-rgb", baseName, sourceImage);
+            sourceImage = imageProcessingService.scaleImage(sourceImage, workWidth, workHeight, textHint);
+            logTiffStage("scaled", baseName, sourceImage);
         }
 
         BufferedImage argb = imageProcessingService.ensureArgb(sourceImage);
@@ -227,18 +262,16 @@ public class ExportService {
         flushIfDifferent(argb, flattened);
         argb = null;
 
-        BufferedImage rgbFinal = flattened;
-        if (oversampleFactor > 1 && (flattened.getWidth() != targetWidth || flattened.getHeight() != targetHeight)) {
-            rgbFinal = imageProcessingService.gammaAwareScale(flattened, targetWidth, targetHeight, textHint);
-            logTiffStage("downscaled-rgb", baseName, rgbFinal);
-            flushIfDifferent(flattened, rgbFinal);
-        }
-
-        BufferedImage cmyk = imageProcessingService.convertToCmyk(rgbFinal, colorProfile);
+        BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, colorProfile);
         logTiffStage("cmyk", baseName, cmyk);
-        flushIfDifferent(rgbFinal, cmyk == rgbFinal ? null : rgbFinal);
-        if (rgbFinal != cmyk) {
-            rgbFinal.flush();
+        flushIfDifferent(flattened, cmyk);
+        flattened = null;
+
+        if (supersample && (cmyk.getWidth() != targetWidth || cmyk.getHeight() != targetHeight)) {
+            BufferedImage downscaled = imageProcessingService.scaleImage(cmyk, targetWidth, targetHeight, textHint);
+            logTiffStage("downscaled", baseName, downscaled);
+            flushIfDifferent(cmyk, downscaled);
+            cmyk = downscaled;
         }
 
         byte[] tiffBytes = tiffWriter.write(cmyk, ppi, useLzw);
@@ -263,12 +296,98 @@ public class ExportService {
         return new ExportResponse(tiffBytes, "image/tiff", disposition);
     }
 
+    private PdfDocumentResult createSourcePdfDocument(byte[] data, UploadType uploadType, ExportRequest request, int dpi, ColorProfile colorProfile) throws IOException {
+        return switch (uploadType) {
+            case SVG -> createPdfFromSvg(data, request, colorProfile);
+            case IMAGE -> new PdfDocumentResult(createPdfFromImage(data, request), false);
+            case PDF -> new PdfDocumentResult(loadPdfDocument(data), true);
+            default -> throw new ConversionException("Неподдерживаемый тип загруженного файла для экспорта в PDF.");
+        };
+    }
+
+    private PdfDocumentResult createPdfFromSvg(byte[] data, ExportRequest request, ColorProfile colorProfile) throws IOException {
+        PDDocument document = new PDDocument();
+        try {
+            int targetWidthPx = positiveOrDefault(request.getWidthPx(), 0);
+            int targetHeightPx = positiveOrDefault(request.getHeightPx(), 0);
+            float targetWidthPt = targetWidthPx > 0 ? pxToPoints(targetWidthPx) : 0f;
+            float targetHeightPt = targetHeightPx > 0 ? pxToPoints(targetHeightPx) : 0f;
+            CmykPdfColorMapper colorMapper = colorProfile != null
+                    ? new CmykPdfColorMapper(colorProfile.getColorSpace())
+                    : null;
+            if (colorMapper != null) {
+                svgRenderer.renderSvg(data, document, targetWidthPt, targetHeightPt, colorMapper);
+            } else {
+                svgRenderer.renderSvg(data, document, targetWidthPt, targetHeightPt);
+            }
+            return new PdfDocumentResult(document, true);
+        } catch (IOException | RuntimeException ex) {
+            document.close();
+            if (ex instanceof IOException io) {
+                throw io;
+            }
+            throw ex;
+        }
+    }
+
+    private PDDocument createPdfFromImage(byte[] data, ExportRequest request) throws IOException {
+        BufferedImage image = readBufferedImage(data);
+        return createPdfFromBufferedImage(image, request);
+    }
+
     private PDDocument loadPdfDocument(byte[] data) throws IOException {
         try {
             return Loader.loadPDF(data);
         } catch (IOException ex) {
             throw new ConversionException("Не удалось прочитать PDF-документ.", ex);
         }
+    }
+
+    private PDDocument createPdfFromBufferedImage(BufferedImage image, ExportRequest request) throws IOException {
+        if (image == null) {
+            throw new ConversionException("Не удалось растеризовать SVG для дальнейшей обработки.");
+        }
+
+        int targetWidth = positiveOrDefault(request.getWidthPx(), image.getWidth());
+        int targetHeight = positiveOrDefault(request.getHeightPx(), image.getHeight());
+        if (image.getWidth() != targetWidth || image.getHeight() != targetHeight) {
+            image = imageProcessingService.scaleImage(image, targetWidth, targetHeight);
+        }
+
+        BufferedImage argb = imageProcessingService.ensureArgb(image);
+        PDDocument document = new PDDocument();
+        PDRectangle pageSize = new PDRectangle(pxToPoints(argb.getWidth()), pxToPoints(argb.getHeight()));
+        PDPage page = new PDPage(pageSize);
+        document.addPage(page);
+
+        PDImageXObject imageObject = LosslessFactory.createFromImage(document, argb);
+        try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+            contentStream.drawImage(imageObject, 0, 0, pageSize.getWidth(), pageSize.getHeight());
+        }
+        return document;
+    }
+
+    private PDDocument rasterizeToCmyk(PDDocument source, int dpi, ColorProfile profile) throws IOException {
+        PDDocument result = new PDDocument();
+        PDFRenderer renderer = new PDFRenderer(source);
+        int pageCount = source.getNumberOfPages();
+        for (int i = 0; i < pageCount; i++) {
+            PDPage originalPage = source.getPage(i);
+            PDRectangle mediaBox = originalPage.getMediaBox();
+            BufferedImage rendered = renderer.renderImageWithDPI(i, dpi, ImageType.ARGB);
+            BufferedImage flattened = imageProcessingService.flattenTransparency(rendered, Color.WHITE);
+            BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, profile);
+            byte[] jpegBytes = jpegWriter.writeCmyk(cmyk, 0.92f, dpi);
+
+            PDPage page = new PDPage(new PDRectangle(mediaBox.getWidth(), mediaBox.getHeight()));
+            result.addPage(page);
+
+            PDImageXObject imageXObject = JPEGFactory.createFromStream(result, new ByteArrayInputStream(jpegBytes));
+            try (PDPageContentStream contentStream = new PDPageContentStream(result, page)) {
+                contentStream.drawImage(imageXObject, 0, 0, mediaBox.getWidth(), mediaBox.getHeight());
+            }
+        }
+        return result;
     }
 
     private BufferedImage readBufferedImage(byte[] data) throws IOException {
@@ -435,5 +554,19 @@ public class ExportService {
             return;
         }
         original.flush();
+    }
+
+    private float pxToPoints(Integer value) {
+        if (value == null || value <= 0) {
+            return 0f;
+        }
+        return (float) (value * PX_TO_POINT);
+    }
+
+    private float pxToPoints(int value) {
+        return (float) (value * PX_TO_POINT);
+    }
+
+    private record PdfDocumentResult(PDDocument document, boolean vector) {
     }
 }
