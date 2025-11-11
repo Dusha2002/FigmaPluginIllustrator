@@ -10,6 +10,7 @@ import javax.imageio.ImageTypeSpecifier;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.metadata.IIOMetadata;
+import javax.imageio.metadata.IIOMetadataNode;
 import javax.imageio.stream.ImageOutputStream;
 import java.awt.color.ColorSpace;
 import java.awt.color.ICC_ColorSpace;
@@ -17,6 +18,9 @@ import java.awt.color.ICC_Profile;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.Iterator;
 
 @Service
@@ -28,6 +32,27 @@ public class TiffWriter {
     }
 
     private static final Logger logger = LoggerFactory.getLogger(TiffWriter.class);
+    private static final int ORIENTATION_TOP_LEFT = 1;
+    private static final int PREDICTOR_HORIZONTAL_DIFFERENCING = 2;
+    private static final int DEFAULT_ROWS_PER_STRIP = 25;
+    private static final String SOFTWARE_NAME = "Adobe Illustrator 24.1 (Windows)";
+    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.ROOT);
+
+    private static final String NODE_TIFF_IFD = "TIFFIFD";
+    private static final String NODE_TIFF_FIELD = "TIFFField";
+    private static final String NODE_TIFF_SHORTS = "TIFFShorts";
+    private static final String NODE_TIFF_SHORT = "TIFFShort";
+    private static final String NODE_TIFF_LONGS = "TIFFLongs";
+    private static final String NODE_TIFF_LONG = "TIFFLong";
+    private static final String NODE_TIFF_ASCIIS = "TIFFAsciis";
+    private static final String NODE_TIFF_ASCII = "TIFFAscii";
+
+    private static final int TAG_ORIENTATION = 274;
+    private static final int TAG_ROWS_PER_STRIP = 278;
+    private static final int TAG_SOFTWARE = 305;
+    private static final int TAG_DATETIME = 306;
+    private static final int TAG_PREDICTOR = 317;
+
     private final ImageResolutionMetadata resolutionMetadata;
 
     public TiffWriter(ImageResolutionMetadata resolutionMetadata) {
@@ -133,7 +158,7 @@ public class TiffWriter {
         try {
             // Используем ImageResolutionMetadata для встраивания resolution
             resolutionMetadata.apply(metadata, ppi);
-            
+
             // Добавляем ICC профиль через нативный формат
             String nativeFormat = metadata.getNativeMetadataFormatName();
             if (nativeFormat != null && nativeFormat.contains("tiff")) {
@@ -145,6 +170,7 @@ public class TiffWriter {
                         addIccProfileToMetadata(metadata, nativeFormat, profile.getData());
                     }
                 }
+                applyIllustratorMetadata(metadata, nativeFormat, image, lzwCompression);
             }
         } catch (Exception e) {
             logger.warn("Failed to embed ICC profile in TIFF metadata", e);
@@ -196,5 +222,115 @@ public class TiffWriter {
         } catch (Exception e) {
             logger.warn("Failed to add ICC profile to TIFF metadata", e);
         }
+    }
+
+    private void applyIllustratorMetadata(IIOMetadata metadata,
+                                          String nativeFormat,
+                                          BufferedImage image,
+                                          boolean lzwCompression) {
+        try {
+            IIOMetadataNode root = (IIOMetadataNode) metadata.getAsTree(nativeFormat);
+            IIOMetadataNode ifd = getOrCreateNode(root, NODE_TIFF_IFD);
+
+            replaceTiffField(ifd, TAG_ORIENTATION,
+                    createShortField(TAG_ORIENTATION, "Orientation", ORIENTATION_TOP_LEFT));
+
+            int rowsPerStrip = calculateRowsPerStrip(image.getHeight());
+            replaceTiffField(ifd, TAG_ROWS_PER_STRIP,
+                    createLongField(TAG_ROWS_PER_STRIP, "RowsPerStrip", rowsPerStrip));
+
+            replaceTiffField(ifd, TAG_SOFTWARE,
+                    createAsciiField(TAG_SOFTWARE, "Software", SOFTWARE_NAME));
+
+            String dateTimeValue = DATE_TIME_FORMATTER.format(LocalDateTime.now());
+            replaceTiffField(ifd, TAG_DATETIME,
+                    createAsciiField(TAG_DATETIME, "DateTime", dateTimeValue));
+
+            if (lzwCompression) {
+                replaceTiffField(ifd, TAG_PREDICTOR,
+                        createShortField(TAG_PREDICTOR, "Predictor", PREDICTOR_HORIZONTAL_DIFFERENCING));
+            } else {
+                removeTiffField(ifd, TAG_PREDICTOR);
+            }
+
+            metadata.setFromTree(nativeFormat, root);
+        } catch (Exception e) {
+            logger.warn("Failed to apply Illustrator-compatible TIFF metadata", e);
+        }
+    }
+
+    private int calculateRowsPerStrip(int imageHeight) {
+        int maxRows = Math.max(1, imageHeight);
+        return Math.max(1, Math.min(DEFAULT_ROWS_PER_STRIP, maxRows));
+    }
+
+    private IIOMetadataNode getOrCreateNode(IIOMetadataNode parent, String name) {
+        for (int i = 0; i < parent.getLength(); i++) {
+            if (parent.item(i) instanceof IIOMetadataNode node && name.equals(node.getNodeName())) {
+                return node;
+            }
+        }
+        IIOMetadataNode node = new IIOMetadataNode(name);
+        parent.appendChild(node);
+        return node;
+    }
+
+    private void replaceTiffField(IIOMetadataNode ifd, int tagNumber, IIOMetadataNode newField) {
+        removeTiffField(ifd, tagNumber);
+        ifd.appendChild(newField);
+    }
+
+    private void removeTiffField(IIOMetadataNode ifd, int tagNumber) {
+        for (int i = ifd.getLength() - 1; i >= 0; i--) {
+            if (ifd.item(i) instanceof IIOMetadataNode node && NODE_TIFF_FIELD.equals(node.getNodeName())) {
+                String number = node.getAttribute("number");
+                if (Integer.toString(tagNumber).equals(number)) {
+                    ifd.removeChild(node);
+                }
+            }
+        }
+    }
+
+    private IIOMetadataNode createShortField(int tagNumber, String name, int value) {
+        IIOMetadataNode field = new IIOMetadataNode(NODE_TIFF_FIELD);
+        field.setAttribute("number", Integer.toString(tagNumber));
+        field.setAttribute("name", name);
+        field.setAttribute("type", "3");
+        field.setAttribute("count", "1");
+        IIOMetadataNode shorts = new IIOMetadataNode(NODE_TIFF_SHORTS);
+        IIOMetadataNode shortNode = new IIOMetadataNode(NODE_TIFF_SHORT);
+        shortNode.setAttribute("value", Integer.toString(value));
+        shorts.appendChild(shortNode);
+        field.appendChild(shorts);
+        return field;
+    }
+
+    private IIOMetadataNode createLongField(int tagNumber, String name, long value) {
+        IIOMetadataNode field = new IIOMetadataNode(NODE_TIFF_FIELD);
+        field.setAttribute("number", Integer.toString(tagNumber));
+        field.setAttribute("name", name);
+        field.setAttribute("type", "4");
+        field.setAttribute("count", "1");
+        IIOMetadataNode longs = new IIOMetadataNode(NODE_TIFF_LONGS);
+        IIOMetadataNode longNode = new IIOMetadataNode(NODE_TIFF_LONG);
+        longNode.setAttribute("value", Long.toString(value));
+        longs.appendChild(longNode);
+        field.appendChild(longs);
+        return field;
+    }
+
+    private IIOMetadataNode createAsciiField(int tagNumber, String name, String value) {
+        IIOMetadataNode field = new IIOMetadataNode(NODE_TIFF_FIELD);
+        field.setAttribute("number", Integer.toString(tagNumber));
+        field.setAttribute("name", name);
+        field.setAttribute("type", "2");
+        int count = value != null ? value.length() + 1 : 1;
+        field.setAttribute("count", Integer.toString(count));
+        IIOMetadataNode asciis = new IIOMetadataNode(NODE_TIFF_ASCIIS);
+        IIOMetadataNode ascii = new IIOMetadataNode(NODE_TIFF_ASCII);
+        ascii.setAttribute("value", value != null ? value : "");
+        asciis.appendChild(ascii);
+        field.appendChild(asciis);
+        return field;
     }
 }
