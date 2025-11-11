@@ -27,6 +27,10 @@ public class ImageProcessingService {
         this.colorProfileManager = colorProfileManager;
     }
 
+    private static final ColorSpace SRGB_COLOR_SPACE = ColorSpace.getInstance(ColorSpace.CS_sRGB);
+    private static final ColorSpace LINEAR_RGB_COLOR_SPACE = ColorSpace.getInstance(ColorSpace.CS_LINEAR_RGB);
+    private static final int[] LINEAR_RGB_BITS = {32, 32, 32};
+
     public BufferedImage ensureArgb(BufferedImage source) {
         if (source.getType() == BufferedImage.TYPE_INT_ARGB) {
             return source;
@@ -89,6 +93,36 @@ public class ImageProcessingService {
         return result;
     }
 
+    public BufferedImage gammaAwareScale(BufferedImage source, int targetWidth, int targetHeight, boolean textHint) {
+        if (source == null || targetWidth <= 0 || targetHeight <= 0
+                || (source.getWidth() == targetWidth && source.getHeight() == targetHeight)) {
+            return source;
+        }
+
+        BufferedImage rgbSource = ensureRgb(source);
+        BufferedImage linearSource = createLinearRgbImage(rgbSource.getWidth(), rgbSource.getHeight());
+        ColorConvertOp toLinear = new ColorConvertOp(rgbSource.getColorModel().getColorSpace(), LINEAR_RGB_COLOR_SPACE, null);
+        toLinear.filter(rgbSource, linearSource);
+
+        BufferedImage linearScaled = createLinearRgbImage(targetWidth, targetHeight);
+        Graphics2D graphics = linearScaled.createGraphics();
+        try {
+            applyCommonHints(graphics, textHint);
+            graphics.drawImage(linearSource, 0, 0, targetWidth, targetHeight, null);
+        } finally {
+            graphics.dispose();
+        }
+
+        BufferedImage result = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
+        ColorConvertOp toSrgb = new ColorConvertOp(LINEAR_RGB_COLOR_SPACE, SRGB_COLOR_SPACE, null);
+        toSrgb.filter(linearScaled, result);
+
+        flushIfDifferent(rgbSource, source);
+        linearSource.flush();
+        linearScaled.flush();
+        return result;
+    }
+
     public BufferedImage convertToCmyk(BufferedImage sourceRgb) {
         return convertToCmyk(sourceRgb, null);
     }
@@ -133,6 +167,18 @@ public class ImageProcessingService {
         if (textHint) {
             graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             graphics.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+        }
+    }
+
+    private BufferedImage createLinearRgbImage(int width, int height) {
+        ComponentColorModel colorModel = new ComponentColorModel(LINEAR_RGB_COLOR_SPACE, LINEAR_RGB_BITS, false, false, Transparency.OPAQUE, DataBuffer.TYPE_FLOAT);
+        WritableRaster raster = colorModel.createCompatibleWritableRaster(width, height);
+        return new BufferedImage(colorModel, raster, false, null);
+    }
+
+    private void flushIfDifferent(BufferedImage candidate, BufferedImage reference) {
+        if (candidate != null && candidate != reference) {
+            candidate.flush();
         }
     }
 }

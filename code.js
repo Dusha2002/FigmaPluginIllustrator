@@ -216,6 +216,51 @@ function signedAxisDistance(aStart, aSize, bStart, bSize) {
   return 0;
 }
 
+function pxToMm(value) {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return null;
+  }
+  return value * MM_PER_PX;
+}
+
+function collectAutoLayoutInfo(node) {
+  if (!node || typeof node.layoutMode !== 'string' || node.layoutMode === 'NONE') {
+    return null;
+  }
+  const layoutWrap = 'layoutWrap' in node ? node.layoutWrap : null;
+  const counterAxisSpacing = 'counterAxisSpacing' in node ? node.counterAxisSpacing : undefined;
+  const primaryAxisSizingMode = 'primaryAxisSizingMode' in node ? node.primaryAxisSizingMode : null;
+  const counterAxisSizingMode = 'counterAxisSizingMode' in node ? node.counterAxisSizingMode : null;
+  const primaryAxisAlignItems = 'primaryAxisAlignItems' in node ? node.primaryAxisAlignItems : null;
+  const counterAxisAlignItems = 'counterAxisAlignItems' in node ? node.counterAxisAlignItems : null;
+  const primaryAxisAlignContent = 'primaryAxisAlignContent' in node ? node.primaryAxisAlignContent : null;
+  const counterAxisAlignContent = 'counterAxisAlignContent' in node ? node.counterAxisAlignContent : null;
+
+  const info = {
+    layoutMode: node.layoutMode,
+    layoutWrap: layoutWrap || 'NO_WRAP',
+    primaryAxisSizingMode: primaryAxisSizingMode || null,
+    counterAxisSizingMode: counterAxisSizingMode || null,
+    primaryAxisAlignItems: primaryAxisAlignItems || null,
+    counterAxisAlignItems: counterAxisAlignItems || null,
+    primaryAxisAlignContent: primaryAxisAlignContent || null,
+    counterAxisAlignContent: counterAxisAlignContent || null,
+    itemSpacingMm: pxToMm(node.itemSpacing),
+    counterAxisSpacingMm: pxToMm(counterAxisSpacing),
+    paddingTopMm: pxToMm(node.paddingTop),
+    paddingRightMm: pxToMm(node.paddingRight),
+    paddingBottomMm: pxToMm(node.paddingBottom),
+    paddingLeftMm: pxToMm(node.paddingLeft),
+    itemSpacingAuto: primaryAxisAlignItems === 'SPACE_BETWEEN'
+  };
+
+  if (info.itemSpacingAuto) {
+    info.itemSpacingMm = null;
+  }
+
+  return info;
+}
+
 function computeSelectionDistances(selection) {
   if (selection.length < 2) {
     return [];
@@ -262,7 +307,8 @@ function sendSelectionInfo() {
     resizable: false,
     selectionCount: selection.length,
     distances: computeSelectionDistances(selection),
-    ratio: null
+    ratio: null,
+    autoLayout: null
   };
   if (selection.length === 1) {
     const node = selection[0];
@@ -275,6 +321,7 @@ function sendSelectionInfo() {
       response.resizable = nodeSupportsResize(node);
       response.ratio = node.height !== 0 ? node.width / node.height : null;
     }
+    response.autoLayout = collectAutoLayoutInfo(node);
   }
   figma.ui.postMessage(response);
 }
@@ -407,6 +454,45 @@ async function handlePositionUpdate(positionMm) {
   sendSelectionInfo();
 }
 
+async function handleAutoLayoutUpdate(params) {
+  const selection = figma.currentPage.selection;
+  if (selection.length !== 1) {
+    throw new Error('Выберите один объект с автолейаутом.');
+  }
+  const node = selection[0];
+  if (!node || typeof node.layoutMode !== 'string' || node.layoutMode === 'NONE') {
+    throw new Error('Выбранный объект не имеет автолейаута.');
+  }
+  
+  if (typeof params.itemSpacingMm === 'number' && !Number.isNaN(params.itemSpacingMm)) {
+    const spacingPx = Math.max(0, params.itemSpacingMm * PX_PER_MM);
+    node.itemSpacing = spacingPx;
+  }
+  
+  if (typeof params.counterAxisSpacingMm === 'number' && !Number.isNaN(params.counterAxisSpacingMm) && 'counterAxisSpacing' in node) {
+    const counterSpacingPx = Math.max(0, params.counterAxisSpacingMm * PX_PER_MM);
+    node.counterAxisSpacing = counterSpacingPx;
+  }
+  
+  if (typeof params.paddingTopMm === 'number' && !Number.isNaN(params.paddingTopMm)) {
+    node.paddingTop = Math.max(0, params.paddingTopMm * PX_PER_MM);
+  }
+  
+  if (typeof params.paddingRightMm === 'number' && !Number.isNaN(params.paddingRightMm)) {
+    node.paddingRight = Math.max(0, params.paddingRightMm * PX_PER_MM);
+  }
+  
+  if (typeof params.paddingBottomMm === 'number' && !Number.isNaN(params.paddingBottomMm)) {
+    node.paddingBottom = Math.max(0, params.paddingBottomMm * PX_PER_MM);
+  }
+  
+  if (typeof params.paddingLeftMm === 'number' && !Number.isNaN(params.paddingLeftMm)) {
+    node.paddingLeft = Math.max(0, params.paddingLeftMm * PX_PER_MM);
+  }
+  
+  sendSelectionInfo();
+}
+
 function isVectorNode(node) {
   // Растровые типы: IMAGE
   if (node.type === 'IMAGE') {
@@ -446,13 +532,12 @@ async function exportSelection(settings) {
     ? settings.tiffQuality
     : 'standard';
   const useTiffLzw = !!(settings && settings.tiffLzw);
-  const useServer = true;
   const serverUrl = settings && typeof settings.serverUrl === 'string' && settings.serverUrl.trim().length > 0
     ? settings.serverUrl
     : (typeof DEFAULT_SERVER_URL === 'undefined' ? '' : DEFAULT_SERVER_URL);
   const exportScale = exportFormat === 'tiff'
-    ? (requestedPpi / DEFAULT_PPI)
-    : Math.max(requestedPpi / basePpi, 0.01);
+    ? Math.max(requestedPpi / DEFAULT_PPI, 0.01)
+    : 1;
   const selection = figma.currentPage.selection;
   if (selection.length === 0) {
     throw new Error('Нет выделенных объектов для экспорта.');
@@ -463,22 +548,17 @@ async function exportSelection(settings) {
     if (!('exportAsync' in node)) {
       continue;
     }
-    
-    // Определяем, векторный ли элемент
-    const isVector = isVectorNode(node) && !hasRasterEffects(node);
-    
-    // Для PDF: векторные элементы экспортируем как SVG, растровые как PNG
-    // Для TIFF: всё экспортируем как PNG
-    const exportSettings = (exportFormat === 'pdf' && isVector)
+    const isPdfExport = exportFormat === 'pdf';
+    const exportSettings = isPdfExport
       ? {
-        format: 'SVG',
+        format: 'PDF',
         useAbsoluteBounds: true
       }
       : {
         format: 'PNG',
         useAbsoluteBounds: true
       };
-    if (exportSettings.format === 'PNG' && Math.abs(exportScale - 1) > 0.0001) {
+    if (!isPdfExport && Math.abs(exportScale - 1) > 0.0001) {
       exportSettings.constraint = { type: 'SCALE', value: exportScale };
     }
     const bytes = await node.exportAsync(exportSettings);
@@ -486,19 +566,14 @@ async function exportSelection(settings) {
     const bounds = node.absoluteRenderBounds;
     const baseWidth = bounds ? bounds.width : (node.width || 0);
     const baseHeight = bounds ? bounds.height : (node.height || 0);
-    // Для TIFF масштабируем согласно PPI, для PDF - согласно exportScale
-    const widthPx = exportFormat === 'tiff' 
-      ? Math.max(1, Math.round(baseWidth * exportScale))
-      : Math.max(1, Math.round(baseWidth * exportScale));
-    const heightPx = exportFormat === 'tiff'
-      ? Math.max(1, Math.round(baseHeight * exportScale))
-      : Math.max(1, Math.round(baseHeight * exportScale));
+    const widthPx = Math.max(1, Math.round(baseWidth * (isPdfExport ? 1 : exportScale)));
+    const heightPx = Math.max(1, Math.round(baseHeight * (isPdfExport ? 1 : exportScale)));
     exported.push({
       name: baseName,
       data: bytes,
       widthPx,
       heightPx,
-      isVector: exportSettings.format === 'SVG'
+      fileKind: isPdfExport ? 'pdf' : 'png'
     });
   }
   if (exported.length === 0) {
@@ -632,6 +707,16 @@ figma.ui.onmessage = async (message) => {
     }
     case 'request-ui-preferences': {
       sendUiPreferences();
+      break;
+    }
+    case 'apply-auto-layout': {
+      try {
+        await handleAutoLayoutUpdate(message);
+        figma.ui.postMessage({ type: 'auto-layout-update', success: true });
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : 'Не удалось изменить автолейаут.';
+        figma.ui.postMessage({ type: 'auto-layout-update', success: false, error: errMsg });
+      }
       break;
     }
     default:

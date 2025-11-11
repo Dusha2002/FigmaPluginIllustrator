@@ -9,6 +9,15 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -23,18 +32,13 @@ class ExportControllerIntegrationTest {
     private MockMvc mockMvc;
 
     @Test
-    @DisplayName("POST /convert (SVG→PDF) возвращает PDF")
-    void convertSvgToPdfReturnsPdf() throws Exception {
-        String svg = """
-                <svg xmlns='http://www.w3.org/2000/svg' width='120' height='60'>
-                  <rect x='10' y='10' width='100' height='40' fill='#00ff88'/>
-                </svg>
-                """;
+    @DisplayName("POST /convert (PDF) возвращает PDF")
+    void convertPdfReturnsPdf() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "image",
-                "test.svg",
-                "image/svg+xml",
-                svg.getBytes()
+                "test.pdf",
+                "application/pdf",
+                createSamplePdf("Test export")
         );
 
         byte[] response = mockMvc.perform(multipart("/convert")
@@ -72,18 +76,13 @@ class ExportControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /convert (SVG→PDF, ISO Coated v2)")
-    void convertSvgToPdfWithAlternativeProfile() throws Exception {
-        String svg = """
-                <svg xmlns='http://www.w3.org/2000/svg' width='60' height='60'>
-                  <circle cx='30' cy='30' r='25' fill='#ff6600'/>
-                </svg>
-                """;
+    @DisplayName("POST /convert (PDF, ISO Coated v2)")
+    void convertPdfWithAlternativeProfile() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "image",
-                "test.svg",
-                "image/svg+xml",
-                svg.getBytes()
+                "test.pdf",
+                "application/pdf",
+                createSamplePdf("ISO profile")
         );
 
         byte[] response = mockMvc.perform(multipart("/convert")
@@ -98,5 +97,26 @@ class ExportControllerIntegrationTest {
                 .getContentAsByteArray();
 
         assertThat(response).isNotEmpty();
+    }
+
+    private byte[] createSamplePdf(String text) throws IOException {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+
+            PDType1Font font = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
+
+            try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+                contentStream.beginText();
+                contentStream.setFont(font, 14);
+                contentStream.newLineAtOffset(72, 720);
+                contentStream.showText(text);
+                contentStream.endText();
+            }
+
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            document.save(output);
+            return output.toByteArray();
+        }
     }
 }

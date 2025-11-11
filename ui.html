@@ -369,6 +369,55 @@
       font-size: 0.9em;
     }
 
+    .auto-layout-block {
+      margin-top: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .auto-layout-block .row {
+      gap: 12px;
+    }
+
+    .auto-layout-block label {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .auto-layout-padding-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-areas:
+        ". top ."
+        "left . right"
+        ". bottom .";
+      gap: 8px;
+    }
+
+    .auto-layout-padding-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .auto-layout-padding-top {
+      grid-area: top;
+    }
+
+    .auto-layout-padding-right {
+      grid-area: right;
+    }
+
+    .auto-layout-padding-bottom {
+      grid-area: bottom;
+    }
+
+    .auto-layout-padding-left {
+      grid-area: left;
+    }
+
     .panel-footer {
       display: flex;
       justify-content: flex-end;
@@ -472,6 +521,36 @@
       <div class="panel-header">
         <h2>Расстояния</h2>
       </div>
+      <div id="auto-layout-section" class="auto-layout-block hidden" aria-hidden="true">
+        <div class="row">
+          <label>
+            Горизонтальный
+            <input id="auto-layout-spacing" type="number" step="1.00" value="—" />
+          </label>
+          <label id="auto-layout-counter-wrapper" class="hidden">
+            Вертикальный
+            <input id="auto-layout-counter-spacing" type="number" step="1.00" value="—" />
+          </label>
+        </div>
+        <div class="auto-layout-padding-grid">
+          <label class="auto-layout-padding-top">
+            Сверху
+            <input id="auto-layout-padding-top" type="number" step="1.00" value="—" />
+          </label>
+          <label class="auto-layout-padding-right">
+            Справа
+            <input id="auto-layout-padding-right" type="number" step="1.00" value="—" />
+          </label>
+          <label class="auto-layout-padding-bottom">
+            Снизу
+            <input id="auto-layout-padding-bottom" type="number" step="1.00" value="—" />
+          </label>
+          <label class="auto-layout-padding-left">
+            Слева
+            <input id="auto-layout-padding-left" type="number" step="1.00" value="—" />
+          </label>
+        </div>
+      </div>
       <div id="distance-list" class="distance-list hidden"></div>
     </section>
 
@@ -550,11 +629,16 @@
     const uiHeightInput = document.getElementById('ui-height');
     const uiHeightRange = document.getElementById('ui-height-range');
     const exportOverlay = document.getElementById('export-loading');
-    let selectionResizable = false;
-    let selectionRatio = null;
-    let isSyncingDimensions = false;
     let manualThemeOverride = null;
     let isApplyingPreferences = false;
+    const autoLayoutSection = document.getElementById('auto-layout-section');
+    const autoLayoutSpacingInput = document.getElementById('auto-layout-spacing');
+    const autoLayoutCounterWrapper = document.getElementById('auto-layout-counter-wrapper');
+    const autoLayoutCounterSpacingInput = document.getElementById('auto-layout-counter-spacing');
+    const autoLayoutPaddingTop = document.getElementById('auto-layout-padding-top');
+    const autoLayoutPaddingRight = document.getElementById('auto-layout-padding-right');
+    const autoLayoutPaddingBottom = document.getElementById('auto-layout-padding-bottom');
+    const autoLayoutPaddingLeft = document.getElementById('auto-layout-padding-left');
     let settingsExpanded = false;
 
     function updateFormatSpecificOptions() {
@@ -629,6 +713,93 @@
       }
     }
 
+    function formatMm(value) {
+      if (typeof value !== 'number' || Number.isNaN(value)) {
+        return '—';
+      }
+      return `${Number(value).toFixed(2)} мм`;
+    }
+
+    function formatSpacingValue(info) {
+      if (!info) {
+        return '—';
+      }
+      if (info.itemSpacingAuto) {
+        return 'Авто';
+      }
+      return formatMm(info.itemSpacingMm);
+    }
+
+    function formatSizingMode(mode) {
+      switch (mode) {
+        case 'AUTO':
+          return 'По содержимому';
+        case 'FIXED':
+          return 'Фиксированный размер';
+        default:
+          return '—';
+      }
+    }
+
+    function describeDirection(layoutMode) {
+      if (layoutMode === 'HORIZONTAL') {
+        return 'Горизонтальный';
+      }
+      if (layoutMode === 'VERTICAL') {
+        return 'Вертикальный';
+      }
+      return '—';
+    }
+
+    function describeWrap(layoutWrap) {
+      if (layoutWrap === 'WRAP') {
+        return 'Перенос включён';
+      }
+      return 'Без переноса';
+    }
+
+    function updateAutoLayout(info) {
+      if (!autoLayoutSection) {
+        return;
+      }
+      if (!info) {
+        autoLayoutSection.classList.add('hidden');
+        autoLayoutSection.setAttribute('aria-hidden', 'true');
+        return;
+      }
+      autoLayoutSection.classList.remove('hidden');
+      autoLayoutSection.setAttribute('aria-hidden', 'false');
+
+      if (autoLayoutSpacingInput) {
+        const spacingValue = info.itemSpacingAuto ? '—' : (typeof info.itemSpacingMm === 'number' ? toFixed(info.itemSpacingMm) : '—');
+        autoLayoutSpacingInput.value = spacingValue;
+      }
+      if (autoLayoutCounterSpacingInput && autoLayoutCounterWrapper) {
+        const hasCounterSpacing = typeof info.counterAxisSpacingMm === 'number' && !Number.isNaN(info.counterAxisSpacingMm);
+        if (hasCounterSpacing) {
+          autoLayoutCounterSpacingInput.value = toFixed(info.counterAxisSpacingMm);
+          autoLayoutCounterWrapper.classList.remove('hidden');
+          autoLayoutCounterWrapper.setAttribute('aria-hidden', 'false');
+        } else {
+          autoLayoutCounterSpacingInput.value = '—';
+          autoLayoutCounterWrapper.classList.add('hidden');
+          autoLayoutCounterWrapper.setAttribute('aria-hidden', 'true');
+        }
+      }
+      if (autoLayoutPaddingTop) {
+        autoLayoutPaddingTop.value = typeof info.paddingTopMm === 'number' ? toFixed(info.paddingTopMm) : '—';
+      }
+      if (autoLayoutPaddingRight) {
+        autoLayoutPaddingRight.value = typeof info.paddingRightMm === 'number' ? toFixed(info.paddingRightMm) : '—';
+      }
+      if (autoLayoutPaddingBottom) {
+        autoLayoutPaddingBottom.value = typeof info.paddingBottomMm === 'number' ? toFixed(info.paddingBottomMm) : '—';
+      }
+      if (autoLayoutPaddingLeft) {
+        autoLayoutPaddingLeft.value = typeof info.paddingLeftMm === 'number' ? toFixed(info.paddingLeftMm) : '—';
+      }
+    }
+
     function setApplySizeState(enabled) {
       applySizeButton.disabled = !enabled;
     }
@@ -666,9 +837,11 @@
       bodyElement.dataset.theme = theme;
       const isDark = theme === 'dark';
       const label = isDark ? 'Переключить на светлую тему' : 'Переключить на тёмную тему';
-      toggleThemeButton.textContent = isDark ? '🌙' : '☀️';
-      toggleThemeButton.title = label;
-      toggleThemeButton.setAttribute('aria-label', label);
+      if (toggleThemeButton) {
+        toggleThemeButton.textContent = isDark ? '🌙' : '☀️';
+        toggleThemeButton.title = label;
+        toggleThemeButton.setAttribute('aria-label', label);
+      }
     }
 
     function setSettingsVisibility(expanded) {
@@ -1235,15 +1408,22 @@
         for (let i = 0; i < items.length; i++) {
           const item = items[i];
           const binaryArray = item.data instanceof Uint8Array ? item.data : new Uint8Array(item.data);
-          const { blobType, extension } = item.isVector 
-            ? { blobType: 'image/svg+xml', extension: 'svg' }
-            : { blobType: 'image/png', extension: 'png' };
-          const uploadBlob = new Blob([binaryArray], { type: blobType });
-          
+          const uploadMeta = (() => {
+            switch (item.fileKind) {
+              case 'pdf':
+                return { blobType: 'application/pdf', extension: 'pdf' };
+              case 'svg':
+                return { blobType: 'image/svg+xml', extension: 'svg' };
+              default:
+                return { blobType: 'image/png', extension: 'png' };
+            }
+          })();
+          const uploadBlob = new Blob([binaryArray], { type: uploadMeta.blobType });
+
           // Добавляем метаданные для каждого элемента
           formData.append(`widthPx_${i}`, item.widthPx || '');
           formData.append(`heightPx_${i}`, item.heightPx || '');
-          formData.append(`images`, uploadBlob, `${item.name || `element_${i}`}.${extension}`);
+          formData.append(`images`, uploadBlob, `${item.name || `element_${i}`}.${uploadMeta.extension}`);
         }
       } else {
         // Для TIFF или одиночного PDF отправляем один файл
@@ -1251,13 +1431,20 @@
         formData.append('name', item.name || 'export');
         formData.append('widthPx', item.widthPx || '');
         formData.append('heightPx', item.heightPx || '');
-        
+
         const binaryArray = item.data instanceof Uint8Array ? item.data : new Uint8Array(item.data);
-        const { blobType, extension } = (format === 'pdf' && item.isVector)
-          ? { blobType: 'image/svg+xml', extension: 'svg' }
-          : { blobType: 'image/png', extension: 'png' };
-        const uploadBlob = new Blob([binaryArray], { type: blobType });
-        formData.append('image', uploadBlob, `${item.name || 'export'}.${extension}`);
+        const uploadMeta = (() => {
+          switch (item.fileKind || (format === 'pdf' ? 'pdf' : 'png')) {
+            case 'pdf':
+              return { blobType: 'application/pdf', extension: 'pdf' };
+            case 'svg':
+              return { blobType: 'image/svg+xml', extension: 'svg' };
+            default:
+              return { blobType: 'image/png', extension: 'png' };
+          }
+        })();
+        const uploadBlob = new Blob([binaryArray], { type: uploadMeta.blobType });
+        formData.append('image', uploadBlob, `${item.name || 'export'}.${uploadMeta.extension}`);
       }
 
       const response = await fetch(endpoint, {
@@ -1340,7 +1527,7 @@
       }
       switch (message.type) {
         case 'selection-change': {
-          const { width, height, x, y, resizable, selectionCount, distances } = message;
+          const { width, height, x, y, resizable, selectionCount, distances, autoLayout } = message;
           selectionResizable = !!resizable;
           if (typeof width === 'number' && typeof height === 'number') {
             widthInput.value = toFixed(width);
@@ -1353,6 +1540,7 @@
             setApplySizeState(false);
             selectionRatio = null;
           }
+          updateAutoLayout(autoLayout);
           const singleSelection = selectionCount === 1;
           hasSingleSelection = singleSelection;
           if (posXInput) {
@@ -1570,7 +1758,18 @@
       adjustInputValue(input, delta);
     }
 
-    const numericInputs = [posXInput, posYInput, widthInput, heightInput].filter(Boolean);
+    const numericInputs = [
+      posXInput, 
+      posYInput, 
+      widthInput, 
+      heightInput,
+      autoLayoutSpacingInput,
+      autoLayoutCounterSpacingInput,
+      autoLayoutPaddingTop,
+      autoLayoutPaddingRight,
+      autoLayoutPaddingBottom,
+      autoLayoutPaddingLeft
+    ].filter(Boolean);
     numericInputs.forEach((input) => {
       input.addEventListener('keydown', handleNumericKeyDown);
     });
@@ -1659,17 +1858,73 @@
       postUiHeight(uiHeightRange.value);
     });
 
-    toggleThemeButton.addEventListener('click', () => {
-      const current = manualThemeOverride != null ? manualThemeOverride : (bodyElement.dataset.theme || 'light');
-      const next = current === 'dark' ? 'light' : 'dark';
-      manualThemeOverride = next;
-      updateThemeVisual(next);
-      post('set-theme-override', { theme: next });
-    });
+    if (toggleThemeButton) {
+      toggleThemeButton.addEventListener('click', () => {
+        const current = manualThemeOverride != null ? manualThemeOverride : (bodyElement.dataset.theme || 'light');
+        const next = current === 'dark' ? 'light' : 'dark';
+        manualThemeOverride = next;
+        updateThemeVisual(next);
+        post('set-theme-override', { theme: next });
+      });
+    }
 
-    toggleSettingsButton.addEventListener('click', () => {
-      setSettingsVisibility(!settingsExpanded);
-    });
+    if (toggleSettingsButton) {
+      toggleSettingsButton.addEventListener('click', () => {
+        setSettingsVisibility(!settingsExpanded);
+      });
+    }
+
+    function applyAutoLayoutValues() {
+      const spacingValue = parseFloat(autoLayoutSpacingInput.value);
+      const counterSpacingValue = parseFloat(autoLayoutCounterSpacingInput.value);
+      const paddingTopValue = parseFloat(autoLayoutPaddingTop.value);
+      const paddingRightValue = parseFloat(autoLayoutPaddingRight.value);
+      const paddingBottomValue = parseFloat(autoLayoutPaddingBottom.value);
+      const paddingLeftValue = parseFloat(autoLayoutPaddingLeft.value);
+
+      const payload = {};
+      if (!Number.isNaN(spacingValue)) {
+        payload.itemSpacingMm = spacingValue;
+      }
+      if (!Number.isNaN(counterSpacingValue)) {
+        payload.counterAxisSpacingMm = counterSpacingValue;
+      }
+      if (!Number.isNaN(paddingTopValue)) {
+        payload.paddingTopMm = paddingTopValue;
+      }
+      if (!Number.isNaN(paddingRightValue)) {
+        payload.paddingRightMm = paddingRightValue;
+      }
+      if (!Number.isNaN(paddingBottomValue)) {
+        payload.paddingBottomMm = paddingBottomValue;
+      }
+      if (!Number.isNaN(paddingLeftValue)) {
+        payload.paddingLeftMm = paddingLeftValue;
+      }
+
+      if (Object.keys(payload).length > 0) {
+        post('apply-auto-layout', payload);
+      }
+    }
+
+    if (autoLayoutSpacingInput) {
+      autoLayoutSpacingInput.addEventListener('input', applyAutoLayoutValues);
+    }
+    if (autoLayoutCounterSpacingInput) {
+      autoLayoutCounterSpacingInput.addEventListener('input', applyAutoLayoutValues);
+    }
+    if (autoLayoutPaddingTop) {
+      autoLayoutPaddingTop.addEventListener('input', applyAutoLayoutValues);
+    }
+    if (autoLayoutPaddingRight) {
+      autoLayoutPaddingRight.addEventListener('input', applyAutoLayoutValues);
+    }
+    if (autoLayoutPaddingBottom) {
+      autoLayoutPaddingBottom.addEventListener('input', applyAutoLayoutValues);
+    }
+    if (autoLayoutPaddingLeft) {
+      autoLayoutPaddingLeft.addEventListener('input', applyAutoLayoutValues);
+    }
 
     exportButton.addEventListener('click', () => {
       setExportState(true);
