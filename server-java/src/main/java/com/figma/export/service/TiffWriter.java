@@ -31,25 +31,6 @@ public class TiffWriter {
         ImageIO.scanForPlugins();
     }
 
-    private boolean enableHorizontalDifferencing(ImageWriteParam param, boolean enabled) {
-        try {
-            var setMethod = param.getClass().getMethod("setHorizontalDifferencingEnabled", boolean.class);
-            setMethod.invoke(param, enabled);
-            var getMethod = param.getClass().getMethod("isHorizontalDifferencingEnabled");
-            Object result = getMethod.invoke(param);
-            if (result instanceof Boolean bool) {
-                return bool;
-            }
-        } catch (NoSuchMethodException e) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("TIFF writer does not expose horizontal differencing API: {}", param.getClass().getName());
-            }
-        } catch (Exception e) {
-            logger.debug("Failed to toggle horizontal differencing for writer {}", param.getClass().getName(), e);
-        }
-        return false;
-    }
-
     private static final Logger logger = LoggerFactory.getLogger(TiffWriter.class);
     private static final int ORIENTATION_TOP_LEFT = 1;
     private static final int PREDICTOR_HORIZONTAL_DIFFERENCING = 2;
@@ -104,7 +85,7 @@ public class TiffWriter {
 
     private byte[] writeWithImageIO(BufferedImage image, int ppi, boolean lzwCompression) throws IOException {
         ImageTypeSpecifier typeSpecifier = ImageTypeSpecifier.createFromRenderedImage(image);
-        ImageWriter writer = selectPreferredTiffWriter();
+        ImageWriter writer = selectSunTiffWriter();
         if (writer == null) {
             throw new IOException("Sun TIFF writer not found");
         }
@@ -114,9 +95,6 @@ public class TiffWriter {
 
             writer.setOutput(ios);
             ImageWriteParam writeParam = writer.getDefaultWriteParam();
-            boolean predictorEnabled = false;
-            String writerClassName = writer.getClass().getName();
-            boolean isTwelveMonkeysWriter = writerClassName.toLowerCase(Locale.ROOT).contains("twelvemonkeys");
 
             if (writeParam.canWriteCompressed()) {
                 if (lzwCompression) {
@@ -135,31 +113,15 @@ public class TiffWriter {
                     if (!supportsLzw) {
                         logger.warn("LZW compression requested but not supported by writer. Falling back to no compression.");
                         writeParam.setCompressionMode(ImageWriteParam.MODE_DISABLED);
-                        predictorEnabled = false;
-                    } else if (!isTwelveMonkeysWriter) {
-                        predictorEnabled = enableHorizontalDifferencing(writeParam, true);
                     }
                 } else {
                     writeParam.setCompressionMode(ImageWriteParam.MODE_DISABLED);
                 }
             }
 
-            if (lzwCompression) {
-                if (isTwelveMonkeysWriter) {
-                    predictorEnabled = true;
-                } else {
-                    predictorEnabled = enableHorizontalDifferencing(writeParam, true);
-                }
-            } else {
-                enableHorizontalDifferencing(writeParam, false);
-            }
-
-            if (!predictorEnabled && lzwCompression && logger.isDebugEnabled()) {
-                logger.debug("Predictor disabled: TIFF writer does not support horizontal differencing");
-            }
-
+            // Получаем метаданные и встраиваем ICC профиль
             IIOMetadata metadata = writer.getDefaultImageMetadata(typeSpecifier, writeParam);
-            embedIccProfile(metadata, image, ppi, lzwCompression, predictorEnabled);
+            embedIccProfile(metadata, image, ppi, lzwCompression);
 
             // Записываем изображение
             writer.write(null, new IIOImage(image, null, metadata), writeParam);
@@ -171,35 +133,21 @@ public class TiffWriter {
         }
     }
 
-    private ImageWriter selectPreferredTiffWriter() {
+    private ImageWriter selectSunTiffWriter() {
         Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("TIFF");
-        ImageWriter sunWriter = null;
-
         while (writers.hasNext()) {
             ImageWriter candidate = writers.next();
             String className = candidate.getClass().getName();
-
-            if (className.toLowerCase(Locale.ROOT).contains("twelvemonkeys")) {
+            // Используем встроенный Sun TIFF writer
+            if (className.contains("sun.imageio") || className.contains("com.sun.imageio")) {
                 if (logger.isDebugEnabled()) {
-                    logger.debug("Selected TIFF writer (TwelveMonkeys): {}", className);
+                    logger.debug("Selected TIFF writer: {}", className);
                 }
                 return candidate;
             }
-
-            if (sunWriter == null && (className.contains("sun.imageio") || className.contains("com.sun.imageio"))) {
-                sunWriter = candidate;
-            } else {
-                candidate.dispose();
-            }
+            candidate.dispose();
         }
-
-        if (sunWriter != null) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Selected TIFF writer (Sun): {}", sunWriter.getClass().getName());
-            }
-            return sunWriter;
-        }
-
+        // Fallback: берём первый доступный
         writers = ImageIO.getImageWritersByFormatName("TIFF");
         if (writers.hasNext()) {
             return writers.next();
@@ -207,7 +155,7 @@ public class TiffWriter {
         return null;
     }
 
-    private void embedIccProfile(IIOMetadata metadata, BufferedImage image, int ppi, boolean lzwCompression, boolean predictorEnabled) {
+    private void embedIccProfile(IIOMetadata metadata, BufferedImage image, int ppi, boolean lzwCompression) {
         try {
             // Используем ImageResolutionMetadata для встраивания resolution
             resolutionMetadata.apply(metadata, ppi);
@@ -223,7 +171,7 @@ public class TiffWriter {
                         addIccProfileToMetadata(metadata, nativeFormat, profile.getData());
                     }
                 }
-                applyIllustratorMetadata(metadata, nativeFormat, image, lzwCompression, predictorEnabled);
+                applyIllustratorMetadata(metadata, nativeFormat, image, lzwCompression);
             }
         } catch (Exception e) {
             logger.warn("Failed to embed ICC profile in TIFF metadata", e);
@@ -280,8 +228,7 @@ public class TiffWriter {
     private void applyIllustratorMetadata(IIOMetadata metadata,
                                           String nativeFormat,
                                           BufferedImage image,
-                                          boolean lzwCompression,
-                                          boolean predictorEnabled) {
+                                          boolean lzwCompression) {
         try {
             IIOMetadataNode root = (IIOMetadataNode) metadata.getAsTree(nativeFormat);
             IIOMetadataNode ifd = getOrCreateNode(root, NODE_TIFF_IFD);
@@ -303,7 +250,8 @@ public class TiffWriter {
             replaceTiffField(ifd, TAG_DATETIME,
                     createAsciiField(TAG_DATETIME, "DateTime", dateTimeValue));
 
-            if (lzwCompression && predictorEnabled) {
+            // CorelDraw требует Predictor при LZW
+            if (lzwCompression) {
                 replaceTiffField(ifd, TAG_PREDICTOR,
                         createShortField(TAG_PREDICTOR, "Predictor", PREDICTOR_HORIZONTAL_DIFFERENCING));
             } else {

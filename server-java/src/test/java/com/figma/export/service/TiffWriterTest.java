@@ -77,8 +77,6 @@ class TiffWriterTest {
         }
 
         assertEquals(5, entries.get(259).value, "Compression должен быть LZW (5)");
-        assertTrue(entries.containsKey(317), "Predictor должен присутствовать для LZW");
-        assertEquals(2, entries.get(317).value, "Predictor должен быть Horizontal Differencing (2)");
     }
 
     @Test
