@@ -483,25 +483,8 @@ public class ExportService {
         }
 
         PDImageXObject converted = JPEGFactory.createFromStream(document, new ByteArrayInputStream(jpegBytes));
-        preserveImageAncillaries(image, converted);
+        converted.getCOSObject().removeItem(COSName.DECODE);
         resources.put(name, converted);
-    }
-
-    private void preserveImageAncillaries(PDImageXObject original, PDImageXObject replacement) {
-        if (original == null || replacement == null) {
-            return;
-        }
-        COSDictionary originalDict = original.getCOSObject();
-        COSDictionary replacementDict = replacement.getCOSObject();
-        copyIfPresent(originalDict, replacementDict, COSName.SMASK);
-        copyIfPresent(originalDict, replacementDict, COSName.MASK);
-        copyIfPresent(originalDict, replacementDict, COSName.IMAGE_MASK);
-    }
-
-    private void copyIfPresent(COSDictionary source, COSDictionary target, COSName key) {
-        if (source.containsKey(key)) {
-            target.setItem(key, source.getDictionaryObject(key));
-        }
     }
 
     private BufferedImage readBufferedImage(byte[] data) throws IOException {
