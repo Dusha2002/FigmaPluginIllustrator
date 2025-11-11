@@ -49,6 +49,7 @@ public class TiffWriter {
 
     private static final int TAG_ORIENTATION = 274;
     private static final int TAG_ROWS_PER_STRIP = 278;
+    private static final int TAG_PLANAR_CONFIGURATION = 284;
     private static final int TAG_SOFTWARE = 305;
     private static final int TAG_DATETIME = 306;
     private static final int TAG_PREDICTOR = 317;
@@ -235,9 +236,12 @@ public class TiffWriter {
             replaceTiffField(ifd, TAG_ORIENTATION,
                     createShortField(TAG_ORIENTATION, "Orientation", ORIENTATION_TOP_LEFT));
 
-            int rowsPerStrip = calculateRowsPerStrip(image.getHeight());
+            int rowsPerStrip = calculateRowsPerStrip(image);
             replaceTiffField(ifd, TAG_ROWS_PER_STRIP,
                     createLongField(TAG_ROWS_PER_STRIP, "RowsPerStrip", rowsPerStrip));
+
+            replaceTiffField(ifd, TAG_PLANAR_CONFIGURATION,
+                    createShortField(TAG_PLANAR_CONFIGURATION, "PlanarConfiguration", 1));
 
             replaceTiffField(ifd, TAG_SOFTWARE,
                     createAsciiField(TAG_SOFTWARE, "Software", SOFTWARE_NAME));
@@ -246,7 +250,12 @@ public class TiffWriter {
             replaceTiffField(ifd, TAG_DATETIME,
                     createAsciiField(TAG_DATETIME, "DateTime", dateTimeValue));
 
-            removeTiffField(ifd, TAG_PREDICTOR);
+            if (lzwCompression) {
+                replaceTiffField(ifd, TAG_PREDICTOR,
+                        createShortField(TAG_PREDICTOR, "Predictor", PREDICTOR_HORIZONTAL_DIFFERENCING));
+            } else {
+                removeTiffField(ifd, TAG_PREDICTOR);
+            }
 
             metadata.setFromTree(nativeFormat, root);
         } catch (Exception e) {
@@ -254,9 +263,17 @@ public class TiffWriter {
         }
     }
 
-    private int calculateRowsPerStrip(int imageHeight) {
+    private int calculateRowsPerStrip(BufferedImage image) {
+        int imageHeight = image.getHeight();
         int maxRows = Math.max(1, imageHeight);
-        return Math.max(1, Math.min(DEFAULT_ROWS_PER_STRIP, maxRows));
+
+        int samplesPerPixel = image.getSampleModel().getNumBands();
+        int bytesPerRow = Math.max(1, image.getWidth() * samplesPerPixel);
+        int compressionTarget = 60 * 1024; // целим в ~60 КБ после сжатия
+        int limitBySize = Math.max(1, compressionTarget / bytesPerRow);
+
+        int target = Math.min(DEFAULT_ROWS_PER_STRIP, Math.min(maxRows, limitBySize));
+        return Math.max(1, target);
     }
 
     private IIOMetadataNode getOrCreateNode(IIOMetadataNode parent, String name) {
