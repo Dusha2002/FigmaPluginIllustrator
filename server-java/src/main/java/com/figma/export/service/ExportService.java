@@ -495,7 +495,6 @@ public class ExportService {
         COSDictionary replacementDict = replacement.getCOSObject();
         copyIfPresent(originalDict, replacementDict, COSName.SMASK);
         copyIfPresent(originalDict, replacementDict, COSName.MASK);
-        copyIfPresent(originalDict, replacementDict, COSName.DECODE);
         copyIfPresent(originalDict, replacementDict, COSName.IMAGE_MASK);
     }
 
@@ -514,7 +513,10 @@ public class ExportService {
     }
 
     private void applyPdfDefaults(PDDocument document, ColorProfile profile) throws IOException {
-        document.setVersion(1.4f);
+        float currentVersion = document.getVersion();
+        if (Float.isNaN(currentVersion) || currentVersion < 1.4f) {
+            document.setVersion(1.4f);
+        }
         PDDocumentInformation information = document.getDocumentInformation();
         if (information == null) {
             information = new PDDocumentInformation();
