@@ -250,7 +250,13 @@ public class TiffWriter {
             replaceTiffField(ifd, TAG_DATETIME,
                     createAsciiField(TAG_DATETIME, "DateTime", dateTimeValue));
 
-            removeTiffField(ifd, TAG_PREDICTOR);
+            // CorelDraw требует Predictor при LZW
+            if (lzwCompression) {
+                replaceTiffField(ifd, TAG_PREDICTOR,
+                        createShortField(TAG_PREDICTOR, "Predictor", PREDICTOR_HORIZONTAL_DIFFERENCING));
+            } else {
+                removeTiffField(ifd, TAG_PREDICTOR);
+            }
 
             metadata.setFromTree(nativeFormat, root);
         } catch (Exception e) {
