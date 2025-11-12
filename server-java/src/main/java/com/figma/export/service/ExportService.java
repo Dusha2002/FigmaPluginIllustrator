@@ -10,19 +10,16 @@ import com.figma.export.pdf.CmykPdfColorMapper;
 import com.figma.export.svg.SvgRenderer;
 import com.figma.export.svg.SvgRenderer.SvgRenderResult;
 import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.cos.COSDictionary;
-import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.io.RandomAccessRead;
+import org.apache.pdfbox.io.RandomAccessReadBuffer;
+import org.apache.pdfbox.multipdf.PDFMergerUtility;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDDocumentCatalog;
 import org.apache.pdfbox.pdmodel.PDDocumentInformation;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
-import org.apache.pdfbox.pdmodel.graphics.PDXObject;
-import org.apache.pdfbox.pdmodel.graphics.color.PDColorSpace;
 import org.apache.pdfbox.pdmodel.graphics.color.PDOutputIntent;
-import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.JPEGFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
@@ -43,10 +40,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Calendar;
-import java.util.Collections;
-import java.util.IdentityHashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.TimeZone;
 
 @Service
@@ -131,85 +127,67 @@ public class ExportService {
     }
 
     private ExportResponse convertMultipleToPdf(java.util.List<org.springframework.web.multipart.MultipartFile> files, ExportRequest request, String baseName) throws IOException {
+        if (files == null || files.isEmpty()) {
+            throw new ConversionException("Не переданы элементы для объединения в PDF.");
+        }
+
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
-        
-        PDDocument combinedDocument = new PDDocument();
+
+        PDFMergerUtility mergerUtility = new PDFMergerUtility();
+        ByteArrayOutputStream destination = new ByteArrayOutputStream();
+        mergerUtility.setDestinationStream(destination);
+        List<RandomAccessRead> preparedSources = new ArrayList<>();
         try {
             for (int i = 0; i < files.size(); i++) {
                 org.springframework.web.multipart.MultipartFile file = files.get(i);
                 byte[] data = file.getBytes();
                 UploadType uploadType = detectUploadType(file);
-                
-                // Получаем размеры для текущего элемента
-                Integer widthPx = request.getWidthPx(i);
-                Integer heightPx = request.getHeightPx(i);
-                
-                // Создаём временный request для текущего элемента
+
                 ExportRequest itemRequest = new ExportRequest();
                 itemRequest.setFormat(request.getFormat());
-                itemRequest.setName(baseName + "_" + i);
+                itemRequest.setName(baseName + "_" + (i + 1));
                 itemRequest.setPpi(request.getPpi());
-                itemRequest.setWidthPx(widthPx);
-                itemRequest.setHeightPx(heightPx);
-                
-                // Создаём PDF-документ для текущего элемента
-                PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, itemRequest, dpi, colorProfile);
-                PDDocument sourceDocument = sourceResult.document();
-                
-                try {
-                    // Копируем страницы из исходного документа в объединённый
-                    for (PDPage page : sourceDocument.getPages()) {
-                        combinedDocument.addPage(page);
-                    }
-                } finally {
-                    // Не закрываем sourceDocument, так как страницы используются в combinedDocument
-                    // sourceDocument.close();
-                }
+                itemRequest.setWidthPx(request.getWidthPx(i));
+                itemRequest.setHeightPx(request.getHeightPx(i));
+
+                byte[] prepared = preparePdfDocumentBytes(data, uploadType, itemRequest, dpi, colorProfile);
+                RandomAccessReadBuffer sourceBuffer = new RandomAccessReadBuffer(prepared);
+                preparedSources.add(sourceBuffer);
+                mergerUtility.addSource(sourceBuffer);
             }
-            
-            convertEmbeddedImagesToCmyk(combinedDocument, colorProfile, dpi);
-            // Применяем настройки PDF
-            applyPdfDefaults(combinedDocument, colorProfile);
-            
-            byte[] pdfBytes = saveDocument(combinedDocument);
+
+            mergerUtility.mergeDocuments(null);
+            byte[] mergedBytes = destination.toByteArray();
+
+            try (PDDocument mergedDocument = Loader.loadPDF(mergedBytes)) {
+                applyPdfDefaults(mergedDocument, colorProfile);
+                mergedBytes = saveDocument(mergedDocument);
+            }
+
             ContentDisposition disposition = ContentDisposition.attachment()
                     .filename(baseName + ".pdf", StandardCharsets.UTF_8)
                     .build();
-            return new ExportResponse(pdfBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
+            return new ExportResponse(mergedBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
         } finally {
-            combinedDocument.close();
+            for (RandomAccessRead source : preparedSources) {
+                try {
+                    source.close();
+                } catch (IOException ignored) {
+                }
+            }
+            destination.close();
         }
     }
 
     private ExportResponse convertToPdf(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
-        PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi, colorProfile);
-        PDDocument sourceDocument = sourceResult.document();
-        PDDocument rasterizedDocument = null;
-        try {
-            PDDocument workingDocument = sourceDocument;
-            if (!sourceResult.vector()) {
-                rasterizedDocument = rasterizeToCmyk(workingDocument, dpi, colorProfile);
-                workingDocument = rasterizedDocument;
-            }
-            if (uploadType == UploadType.PDF) {
-                convertEmbeddedImagesToCmyk(workingDocument, colorProfile, dpi);
-            }
-
-            applyPdfDefaults(workingDocument, colorProfile);
-            byte[] pdfBytes = saveDocument(workingDocument);
-            ContentDisposition disposition = ContentDisposition.attachment()
-                    .filename(baseName + ".pdf", StandardCharsets.UTF_8)
-                    .build();
-            return new ExportResponse(pdfBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
-        } finally {
-            sourceDocument.close();
-            if (rasterizedDocument != null) {
-                rasterizedDocument.close();
-            }
-        }
+        byte[] pdfBytes = preparePdfDocumentBytes(data, uploadType, request, dpi, colorProfile);
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(baseName + ".pdf", StandardCharsets.UTF_8)
+                .build();
+        return new ExportResponse(pdfBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
     }
 
     private ExportResponse convertToTiff(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
@@ -380,6 +358,27 @@ public class ExportService {
         return document;
     }
 
+    private byte[] preparePdfDocumentBytes(byte[] data, UploadType uploadType, ExportRequest request, int dpi, ColorProfile colorProfile) throws IOException {
+        PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi, colorProfile);
+        PDDocument sourceDocument = sourceResult.document();
+        PDDocument rasterizedDocument = null;
+        try {
+            PDDocument workingDocument = sourceDocument;
+            if (!sourceResult.vector()) {
+                rasterizedDocument = rasterizeToCmyk(sourceDocument, dpi, colorProfile);
+                workingDocument = rasterizedDocument;
+            }
+
+            applyPdfDefaults(workingDocument, colorProfile);
+            return saveDocument(workingDocument);
+        } finally {
+            if (rasterizedDocument != null) {
+                rasterizedDocument.close();
+            }
+            sourceDocument.close();
+        }
+    }
+
     private PDDocument rasterizeToCmyk(PDDocument source, int dpi, ColorProfile profile) throws IOException {
         PDDocument result = new PDDocument();
         PDFRenderer renderer = new PDFRenderer(source);
@@ -403,90 +402,6 @@ public class ExportService {
         return result;
     }
 
-    private void convertEmbeddedImagesToCmyk(PDDocument document, ColorProfile profile, int dpi) throws IOException {
-        if (document == null || profile == null) {
-            return;
-        }
-        Set<COSDictionary> processed = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (PDPage page : document.getPages()) {
-            convertResourcesToCmyk(document, page.getResources(), profile, dpi, processed);
-        }
-    }
-
-    private void convertResourcesToCmyk(PDDocument document,
-                                        PDResources resources,
-                                        ColorProfile profile,
-                                        int dpi,
-                                        Set<COSDictionary> processed) throws IOException {
-        if (resources == null) {
-            return;
-        }
-        for (COSName name : resources.getXObjectNames()) {
-            PDXObject xobject = resources.getXObject(name);
-            if (xobject instanceof PDImageXObject image) {
-                convertImageXObject(document, resources, name, image, profile, dpi, processed);
-            } else if (xobject instanceof PDFormXObject form) {
-                convertResourcesToCmyk(document, form.getResources(), profile, dpi, processed);
-            }
-        }
-    }
-
-    private void convertImageXObject(PDDocument document,
-                                     PDResources resources,
-                                     COSName name,
-                                     PDImageXObject image,
-                                     ColorProfile profile,
-                                     int dpi,
-                                     Set<COSDictionary> processed) throws IOException {
-        if (image == null || image.isStencil()) {
-            return;
-        }
-        COSDictionary cosObject = image.getCOSObject();
-        if (processed.contains(cosObject)) {
-            return;
-        }
-        processed.add(cosObject);
-
-        PDColorSpace colorSpace;
-        try {
-            colorSpace = image.getColorSpace();
-            if (colorSpace != null && colorSpace.getNumberOfComponents() == 4) {
-                return;
-            }
-        } catch (IOException ex) {
-            logger.warn("Не удалось определить цветовое пространство изображения, пропуск конвертации", ex);
-            return;
-        }
-
-        BufferedImage buffered;
-        try {
-            buffered = image.getImage();
-        } catch (IOException ex) {
-            logger.warn("Не удалось загрузить данные изображения для конвертации в CMYK", ex);
-            return;
-        }
-        if (buffered == null) {
-            return;
-        }
-
-        BufferedImage prepared = imageProcessingService.ensureArgb(buffered);
-        BufferedImage flattened = imageProcessingService.flattenTransparency(prepared, Color.WHITE);
-        BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, profile);
-        byte[] jpegBytes = jpegWriter.writeCmyk(cmyk, 0.92f, dpi);
-
-        buffered.flush();
-        if (prepared != buffered) {
-            prepared.flush();
-        }
-        if (flattened != prepared) {
-            flattened.flush();
-        }
-
-        PDImageXObject converted = JPEGFactory.createFromStream(document, new ByteArrayInputStream(jpegBytes));
-        converted.getCOSObject().removeItem(COSName.DECODE);
-        resources.put(name, converted);
-    }
-
     private BufferedImage readBufferedImage(byte[] data) throws IOException {
         try {
             return imageInputLoader.read(data);
@@ -496,10 +411,7 @@ public class ExportService {
     }
 
     private void applyPdfDefaults(PDDocument document, ColorProfile profile) throws IOException {
-        float currentVersion = document.getVersion();
-        if (Float.isNaN(currentVersion) || currentVersion < 1.4f) {
-            document.setVersion(1.4f);
-        }
+        document.setVersion(1.4f);
         PDDocumentInformation information = document.getDocumentInformation();
         if (information == null) {
             information = new PDDocumentInformation();

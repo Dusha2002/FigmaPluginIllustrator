@@ -549,31 +549,49 @@ async function exportSelection(settings) {
       continue;
     }
     const isPdfExport = exportFormat === 'pdf';
-    const exportSettings = isPdfExport
-      ? {
-        format: 'PDF',
-        useAbsoluteBounds: true
+    const isVector = isPdfExport && isVectorNode(node) && !hasRasterEffects(node);
+    const rasterScale = isPdfExport
+      ? Math.max(requestedPpi / DEFAULT_PPI, 0.01)
+      : exportScale;
+    const exportSettings = (() => {
+      if (isPdfExport) {
+        if (isVector) {
+          return {
+            format: 'SVG',
+            useAbsoluteBounds: true
+          };
+        }
+        const pngSettings = {
+          format: 'PNG',
+          useAbsoluteBounds: true
+        };
+        if (Math.abs(rasterScale - 1) > 0.0001) {
+          pngSettings.constraint = { type: 'SCALE', value: rasterScale };
+        }
+        return pngSettings;
       }
-      : {
+      const pngSettings = {
         format: 'PNG',
         useAbsoluteBounds: true
       };
-    if (!isPdfExport && Math.abs(exportScale - 1) > 0.0001) {
-      exportSettings.constraint = { type: 'SCALE', value: exportScale };
-    }
+      if (Math.abs(exportScale - 1) > 0.0001) {
+        pngSettings.constraint = { type: 'SCALE', value: exportScale };
+      }
+      return pngSettings;
+    })();
     const bytes = await node.exportAsync(exportSettings);
     const baseName = sanitizeName(node.name, `export_${i + 1}`);
     const bounds = node.absoluteRenderBounds;
     const baseWidth = bounds ? bounds.width : (node.width || 0);
     const baseHeight = bounds ? bounds.height : (node.height || 0);
-    const widthPx = Math.max(1, Math.round(baseWidth * (isPdfExport ? 1 : exportScale)));
-    const heightPx = Math.max(1, Math.round(baseHeight * (isPdfExport ? 1 : exportScale)));
+    const widthPx = Math.max(1, Math.round(baseWidth * (isPdfExport ? (isVector ? 1 : rasterScale) : exportScale)));
+    const heightPx = Math.max(1, Math.round(baseHeight * (isPdfExport ? (isVector ? 1 : rasterScale) : exportScale)));
     exported.push({
       name: baseName,
       data: bytes,
       widthPx,
       heightPx,
-      fileKind: isPdfExport ? 'pdf' : 'png'
+      fileKind: isPdfExport ? (isVector ? 'svg' : 'png') : 'png'
     });
   }
   if (exported.length === 0) {
