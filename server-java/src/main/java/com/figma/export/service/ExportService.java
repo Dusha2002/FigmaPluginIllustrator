@@ -20,11 +20,8 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.graphics.color.PDOutputIntent;
-import org.apache.pdfbox.pdmodel.graphics.image.JPEGFactory;
-import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
-import org.apache.pdfbox.rendering.ImageType;
-import org.apache.pdfbox.rendering.PDFRenderer;
+import org.apache.pdfbox.pdmodel.graphics.image.JPEGFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ContentDisposition;
@@ -290,8 +287,8 @@ public class ExportService {
     private PdfDocumentResult createSourcePdfDocument(byte[] data, UploadType uploadType, ExportRequest request, int dpi, ColorProfile colorProfile) throws IOException {
         return switch (uploadType) {
             case SVG -> createPdfFromSvg(data, request, colorProfile);
-            case IMAGE -> new PdfDocumentResult(createPdfFromImage(data, request), false);
-            case PDF -> new PdfDocumentResult(loadPdfDocument(data), true);
+            case IMAGE -> new PdfDocumentResult(createPdfFromImage(data, request, colorProfile, dpi));
+            case PDF -> new PdfDocumentResult(loadPdfDocument(data));
             default -> throw new ConversionException("Неподдерживаемый тип загруженного файла для экспорта в PDF.");
         };
     }
@@ -311,7 +308,7 @@ public class ExportService {
             } else {
                 svgRenderer.renderSvg(data, document, targetWidthPt, targetHeightPt);
             }
-            return new PdfDocumentResult(document, true);
+            return new PdfDocumentResult(document);
         } catch (IOException | RuntimeException ex) {
             document.close();
             if (ex instanceof IOException io) {
@@ -321,9 +318,47 @@ public class ExportService {
         }
     }
 
-    private PDDocument createPdfFromImage(byte[] data, ExportRequest request) throws IOException {
+    private PDDocument createPdfFromImage(byte[] data, ExportRequest request, ColorProfile colorProfile, int dpi) throws IOException {
         BufferedImage image = readBufferedImage(data);
-        return createPdfFromBufferedImage(image, request);
+        if (image == null) {
+            throw new ConversionException("Не удалось прочитать растровое изображение для PDF.");
+        }
+
+        int targetWidth = positiveOrDefault(request.getWidthPx(), image.getWidth());
+        int targetHeight = positiveOrDefault(request.getHeightPx(), image.getHeight());
+        if (image.getWidth() != targetWidth || image.getHeight() != targetHeight) {
+            BufferedImage scaled = imageProcessingService.scaleImage(image, targetWidth, targetHeight);
+            flushIfDifferent(image, scaled);
+            image = scaled;
+        }
+
+        BufferedImage argb = imageProcessingService.ensureArgb(image);
+        flushIfDifferent(image, argb);
+        image = null;
+
+        BufferedImage flattened = imageProcessingService.flattenTransparency(argb, Color.WHITE);
+        flushIfDifferent(argb, flattened);
+        argb = null;
+
+        BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, colorProfile);
+        flushIfDifferent(flattened, cmyk);
+        flattened = null;
+
+        int targetPpi = request.getPpi() > 0 ? request.getPpi() : dpi;
+        byte[] jpegBytes = jpegWriter.writeCmyk(cmyk, 0.92f, targetPpi);
+        flushIfDifferent(cmyk, null);
+        cmyk = null;
+
+        PDDocument document = new PDDocument();
+        PDRectangle pageSize = new PDRectangle(pxToPoints(targetWidth), pxToPoints(targetHeight));
+        PDPage page = new PDPage(pageSize);
+        document.addPage(page);
+
+        PDImageXObject imageObject = JPEGFactory.createFromStream(document, new ByteArrayInputStream(jpegBytes));
+        try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+            contentStream.drawImage(imageObject, 0, 0, pageSize.getWidth(), pageSize.getHeight());
+        }
+        return document;
     }
 
     private PDDocument loadPdfDocument(byte[] data) throws IOException {
@@ -334,72 +369,16 @@ public class ExportService {
         }
     }
 
-    private PDDocument createPdfFromBufferedImage(BufferedImage image, ExportRequest request) throws IOException {
-        if (image == null) {
-            throw new ConversionException("Не удалось растеризовать SVG для дальнейшей обработки.");
-        }
-
-        int targetWidth = positiveOrDefault(request.getWidthPx(), image.getWidth());
-        int targetHeight = positiveOrDefault(request.getHeightPx(), image.getHeight());
-        if (image.getWidth() != targetWidth || image.getHeight() != targetHeight) {
-            image = imageProcessingService.scaleImage(image, targetWidth, targetHeight);
-        }
-
-        BufferedImage argb = imageProcessingService.ensureArgb(image);
-        PDDocument document = new PDDocument();
-        PDRectangle pageSize = new PDRectangle(pxToPoints(argb.getWidth()), pxToPoints(argb.getHeight()));
-        PDPage page = new PDPage(pageSize);
-        document.addPage(page);
-
-        PDImageXObject imageObject = LosslessFactory.createFromImage(document, argb);
-        try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
-            contentStream.drawImage(imageObject, 0, 0, pageSize.getWidth(), pageSize.getHeight());
-        }
-        return document;
-    }
 
     private byte[] preparePdfDocumentBytes(byte[] data, UploadType uploadType, ExportRequest request, int dpi, ColorProfile colorProfile) throws IOException {
         PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi, colorProfile);
-        PDDocument sourceDocument = sourceResult.document();
-        PDDocument rasterizedDocument = null;
+        PDDocument document = sourceResult.document();
         try {
-            PDDocument workingDocument = sourceDocument;
-            if (!sourceResult.vector()) {
-                rasterizedDocument = rasterizeToCmyk(sourceDocument, dpi, colorProfile);
-                workingDocument = rasterizedDocument;
-            }
-
-            applyPdfDefaults(workingDocument, colorProfile);
-            return saveDocument(workingDocument);
+            applyPdfDefaults(document, colorProfile);
+            return saveDocument(document);
         } finally {
-            if (rasterizedDocument != null) {
-                rasterizedDocument.close();
-            }
-            sourceDocument.close();
+            document.close();
         }
-    }
-
-    private PDDocument rasterizeToCmyk(PDDocument source, int dpi, ColorProfile profile) throws IOException {
-        PDDocument result = new PDDocument();
-        PDFRenderer renderer = new PDFRenderer(source);
-        int pageCount = source.getNumberOfPages();
-        for (int i = 0; i < pageCount; i++) {
-            PDPage originalPage = source.getPage(i);
-            PDRectangle mediaBox = originalPage.getMediaBox();
-            BufferedImage rendered = renderer.renderImageWithDPI(i, dpi, ImageType.ARGB);
-            BufferedImage flattened = imageProcessingService.flattenTransparency(rendered, Color.WHITE);
-            BufferedImage cmyk = imageProcessingService.convertToCmyk(flattened, profile);
-            byte[] jpegBytes = jpegWriter.writeCmyk(cmyk, 0.92f, dpi);
-
-            PDPage page = new PDPage(new PDRectangle(mediaBox.getWidth(), mediaBox.getHeight()));
-            result.addPage(page);
-
-            PDImageXObject imageXObject = JPEGFactory.createFromStream(result, new ByteArrayInputStream(jpegBytes));
-            try (PDPageContentStream contentStream = new PDPageContentStream(result, page)) {
-                contentStream.drawImage(imageXObject, 0, 0, mediaBox.getWidth(), mediaBox.getHeight());
-            }
-        }
-        return result;
     }
 
     private BufferedImage readBufferedImage(byte[] data) throws IOException {
@@ -574,11 +553,10 @@ public class ExportService {
         }
         return (float) (value * PX_TO_POINT);
     }
-
     private float pxToPoints(int value) {
         return (float) (value * PX_TO_POINT);
     }
 
-    private record PdfDocumentResult(PDDocument document, boolean vector) {
+    private record PdfDocumentResult(PDDocument document) {
     }
 }

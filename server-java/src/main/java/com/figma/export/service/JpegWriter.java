@@ -31,6 +31,7 @@ public class JpegWriter {
         ImageWriter writer = findSupportingWriter(image);
         try (ByteArrayOutputStream buffer = new ByteArrayOutputStream();
              ImageOutputStream ios = ImageIO.createImageOutputStream(buffer)) {
+            writer.reset();
             writer.setOutput(ios);
             ImageWriteParam writeParam = writer.getDefaultWriteParam();
             if (writeParam.canWriteCompressed()) {
@@ -40,10 +41,11 @@ public class JpegWriter {
             IIOMetadata metadata = writer.getDefaultImageMetadata(new ImageTypeSpecifier(image), writeParam);
             resolutionMetadata.apply(metadata, ppi);
             writer.write(null, new IIOImage(image, null, metadata), writeParam);
-            writer.dispose();
             return buffer.toByteArray();
         } finally {
-            writer.dispose();
+            if (writer != null) {
+                writer.dispose();
+            }
         }
     }
 
@@ -53,7 +55,13 @@ public class JpegWriter {
             ImageWriter candidate = writers.next();
             try {
                 candidate.getDefaultImageMetadata(new ImageTypeSpecifier(image), candidate.getDefaultWriteParam());
-                return candidate;
+                var spi = candidate.getOriginatingProvider();
+                ImageWriter writer = spi != null ? spi.createWriterInstance() : candidate;
+                if (spi != null && writer != candidate) {
+                    candidate.dispose();
+                }
+                writer.reset();
+                return writer;
             } catch (IllegalArgumentException ex) {
                 candidate.dispose();
             }
