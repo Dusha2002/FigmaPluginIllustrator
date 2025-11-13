@@ -1,5 +1,11 @@
 package com.figma.export;
 
+import com.figma.export.analysis.PdfAnalysisService;
+import com.figma.export.analysis.PdfAnalysisService.PdfAnalysisResult;
+import com.itextpdf.kernel.pdf.PdfDocument;
+import com.itextpdf.kernel.pdf.PdfWriter;
+import com.itextpdf.layout.Document;
+import com.itextpdf.layout.element.Paragraph;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,23 +17,11 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.awt.Color;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 import javax.imageio.ImageIO;
-
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.cos.COSName;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
-import org.apache.pdfbox.pdmodel.graphics.color.PDColorSpace;
-import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
-import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -41,6 +35,9 @@ class ExportControllerIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private PdfAnalysisService pdfAnalysisService;
 
     @Test
     @DisplayName("POST /convert (PDF) возвращает PDF")
@@ -91,37 +88,52 @@ class ExportControllerIntegrationTest {
                 .getResponse()
                 .getContentAsByteArray();
 
-        try (PDDocument document = Loader.loadPDF(response)) {
-            PDPage page = document.getPage(0);
-            boolean vectorCommandsFound = false;
-            try (var contentStream = page.getContents()) {
-                ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-                contentStream.transferTo(buffer);
-                String content = buffer.toString(StandardCharsets.ISO_8859_1);
-                vectorCommandsFound = content.contains("re") && content.contains("S");
-            }
+        PdfAnalysisResult analysis = pdfAnalysisService.analyze(response);
+        assertThat(analysis.fonts())
+                .withFailMessage("Векторный PDF должен содержать встроенный шрифт")
+                .isNotEmpty();
+        assertThat(analysis.hasDeviceCmykImages()).isFalse();
+        assertThat(analysis.hasDeviceRgbImages()).isFalse();
+        assertThat(analysis.hasDeviceCmykVectors())
+                .withFailMessage("Векторный PDF должен использовать CMYK-команды для заливок/обводок")
+                .isTrue();
+        assertThat(analysis.hasDeviceRgbVectors())
+                .withFailMessage("Векторный PDF не должен содержать DeviceRGB операторов")
+                .isFalse();
+    }
 
-            var resources = page.getResources();
-            var xObjectNames = resources.getXObjectNames();
-            assertThat(xObjectNames).isNotEmpty();
-            for (COSName name : xObjectNames) {
-                var xObject = resources.getXObject(name);
-                if (xObject instanceof PDFormXObject form) {
-                    try (var formStream = form.getContentStream().createInputStream()) {
-                        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-                        formStream.transferTo(buffer);
-                        String formContent = buffer.toString(StandardCharsets.ISO_8859_1);
-                        if (formContent.contains(" re") || formContent.contains(" m") || formContent.contains(" l") || formContent.contains(" S")) {
-                            vectorCommandsFound = true;
-                        }
-                    }
-                }
-            }
+    @Test
+    @DisplayName("SVG с режимом outline конвертирует текст в кривые")
+    void svgExportWithOutlineTextModeConvertsTextToPaths() throws Exception {
+        byte[] svgBytes = ("<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'>" +
+                "<rect x='10' y='10' width='180' height='180' fill='rgb(255,0,0)'/>" +
+                "<text x='100' y='110' font-size='24' text-anchor='middle'>Vector</text>" +
+                "</svg>").getBytes(StandardCharsets.UTF_8);
+        MockMultipartFile file = new MockMultipartFile(
+                "image",
+                "vector_outline.svg",
+                "image/svg+xml",
+                svgBytes
+        );
 
-            assertThat(vectorCommandsFound)
-                    .withFailMessage("Векторные операторы re/S не найдены ни на странице, ни в Form XObject")
-                    .isTrue();
-        }
+        byte[] response = mockMvc.perform(multipart("/convert")
+                        .file(file)
+                        .param("format", "pdf")
+                        .param("name", "vector_outline")
+                        .param("ppi", "150")
+                        .param("svgTextMode", "outline"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray();
+
+        PdfAnalysisResult analysis = pdfAnalysisService.analyze(response);
+        assertThat(analysis.fonts())
+                .withFailMessage("PDF с режимом outline не должен содержать встроенных шрифтов")
+                .isEmpty();
+        assertThat(analysis.hasDeviceCmykImages()).isFalse();
+        assertThat(analysis.hasDeviceRgbImages()).isFalse();
     }
 
     @Test
@@ -198,40 +210,53 @@ class ExportControllerIntegrationTest {
                 .getResponse()
                 .getContentAsByteArray();
 
-        try (PDDocument document = Loader.loadPDF(response)) {
-            PDPage page = document.getPage(0);
-            var resources = page.getResources();
-            boolean foundCmykImage = false;
-            for (COSName name : resources.getXObjectNames()) {
-                var xObject = resources.getXObject(name);
-                if (xObject instanceof PDImageXObject imageObject) {
-                    PDColorSpace colorSpace = imageObject.getColorSpace();
-                    assertThat(colorSpace.getName()).contains("DeviceCMYK");
-                    foundCmykImage = true;
-                }
-            }
-            assertThat(foundCmykImage).isTrue();
-        }
+        PdfAnalysisResult analysis = pdfAnalysisService.analyze(response);
+        assertThat(analysis.hasDeviceCmykImages()).isTrue();
+        assertThat(analysis.hasDeviceRgbVectors()).isFalse();
+        assertThat(analysis.hasDeviceCmykVectors()).isFalse();
+    }
+
+    @Test
+    @DisplayName("SVG с солидными заливками конвертируется без DeviceRGB операторов")
+    void svgExportDoesNotContainDeviceRgbOperators() throws Exception {
+        byte[] svgBytes = ("<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'>" +
+                "<rect x='0' y='0' width='120' height='120' fill='rgb(0,128,255)'/>" +
+                "<circle cx='60' cy='60' r='30' stroke='rgb(255,128,0)' stroke-width='10' fill='none'/>" +
+                "</svg>").getBytes(StandardCharsets.UTF_8);
+        MockMultipartFile file = new MockMultipartFile(
+                "image",
+                "vector_cmyk.svg",
+                "image/svg+xml",
+                svgBytes
+        );
+
+        byte[] response = mockMvc.perform(multipart("/convert")
+                        .file(file)
+                        .param("format", "pdf")
+                        .param("name", "vector_cmyk")
+                        .param("ppi", "150"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray();
+
+        PdfAnalysisResult analysis = pdfAnalysisService.analyze(response);
+        assertThat(analysis.hasDeviceRgbVectors())
+                .withFailMessage("Ожидалось отсутствие DeviceRGB операторов в векторном контенте")
+                .isFalse();
+        assertThat(analysis.hasDeviceCmykVectors())
+                .withFailMessage("Ожидалось наличие CMYK операторов в векторном контенте")
+                .isTrue();
+        assertThat(analysis.hasDeviceRgbImages()).isFalse();
     }
 
     private byte[] createSamplePdf(String text) throws IOException {
-        try (PDDocument document = new PDDocument()) {
-            PDPage page = new PDPage();
-            document.addPage(page);
-
-            PDType1Font font = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
-
-            try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
-                contentStream.beginText();
-                contentStream.setFont(font, 14);
-                contentStream.newLineAtOffset(72, 720);
-                contentStream.showText(text);
-                contentStream.endText();
-            }
-
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            document.save(output);
-            return output.toByteArray();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (PdfDocument pdfDocument = new PdfDocument(new PdfWriter(output));
+             Document document = new Document(pdfDocument)) {
+            document.add(new Paragraph(text));
         }
+        return output.toByteArray();
     }
 }

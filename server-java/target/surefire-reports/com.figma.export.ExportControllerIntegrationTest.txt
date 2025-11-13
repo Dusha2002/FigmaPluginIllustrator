@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: com.figma.export.ExportControllerIntegrationTest
 -------------------------------------------------------------------------------
-Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 5.932 s -- in com.figma.export.ExportControllerIntegrationTest
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.157 s -- in com.figma.export.ExportControllerIntegrationTest

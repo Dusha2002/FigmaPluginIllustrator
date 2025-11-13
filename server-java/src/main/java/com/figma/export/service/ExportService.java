@@ -6,22 +6,19 @@ import com.figma.export.exception.ConversionException;
 import com.figma.export.model.ExportRequest;
 import com.figma.export.model.ExportResponse;
 import com.figma.export.model.UploadType;
-import com.figma.export.pdf.CmykPdfColorMapper;
+import com.figma.export.pdf.itext.ITextPdfResourceFactory;
 import com.figma.export.svg.SvgRenderer;
-import com.figma.export.svg.SvgRenderer.SvgRenderResult;
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.io.RandomAccessRead;
-import org.apache.pdfbox.io.RandomAccessReadBuffer;
-import org.apache.pdfbox.multipdf.PDFMergerUtility;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDDocumentCatalog;
-import org.apache.pdfbox.pdmodel.PDDocumentInformation;
-import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.common.PDRectangle;
-import org.apache.pdfbox.pdmodel.graphics.color.PDOutputIntent;
-import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
-import org.apache.pdfbox.pdmodel.graphics.image.JPEGFactory;
+import com.itextpdf.io.image.ImageData;
+import com.itextpdf.io.image.ImageDataFactory;
+import com.itextpdf.kernel.geom.PageSize;
+import com.itextpdf.kernel.pdf.PdfDocument;
+import com.itextpdf.kernel.pdf.PdfDocumentInfo;
+import com.itextpdf.kernel.pdf.PdfName;
+import com.itextpdf.kernel.pdf.PdfReader;
+import com.itextpdf.kernel.pdf.PdfWriter;
+import com.itextpdf.kernel.pdf.WriterProperties;
+import com.itextpdf.kernel.utils.PdfMerger;
+import com.itextpdf.layout.font.FontProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ContentDisposition;
@@ -35,12 +32,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.util.Calendar;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.TimeZone;
 
 @Service
 public class ExportService {
@@ -64,19 +57,22 @@ public class ExportService {
     private final TiffWriter tiffWriter;
     private final JpegWriter jpegWriter;
     private final ColorProfileManager colorProfileManager;
+    private final ITextPdfResourceFactory pdfResourceFactory;
 
     public ExportService(SvgRenderer svgRenderer,
                          ImageProcessingService imageProcessingService,
                          ImageInputLoader imageInputLoader,
                          TiffWriter tiffWriter,
                          JpegWriter jpegWriter,
-                         ColorProfileManager colorProfileManager) {
+                         ColorProfileManager colorProfileManager,
+                         ITextPdfResourceFactory pdfResourceFactory) {
         this.svgRenderer = svgRenderer;
         this.imageProcessingService = imageProcessingService;
         this.imageInputLoader = imageInputLoader;
         this.tiffWriter = tiffWriter;
         this.jpegWriter = jpegWriter;
         this.colorProfileManager = colorProfileManager;
+        this.pdfResourceFactory = pdfResourceFactory;
     }
 
     public ExportResponse convert(MultipartFile file, ExportRequest request) {
@@ -131,11 +127,11 @@ public class ExportService {
         ColorProfile colorProfile = colorProfileManager.getDefaultProfile();
         int dpi = Math.max(request.getPpi(), DEFAULT_PPI);
 
-        PDFMergerUtility mergerUtility = new PDFMergerUtility();
         ByteArrayOutputStream destination = new ByteArrayOutputStream();
-        mergerUtility.setDestinationStream(destination);
-        List<RandomAccessRead> preparedSources = new ArrayList<>();
-        try {
+        WriterProperties writerProperties = pdfResourceFactory.createWriterProperties(null);
+        try (PdfDocument mergedDocument = new PdfDocument(new PdfWriter(destination, writerProperties))) {
+            PdfMerger merger = new PdfMerger(mergedDocument);
+
             for (int i = 0; i < files.size(); i++) {
                 org.springframework.web.multipart.MultipartFile file = files.get(i);
                 byte[] data = file.getBytes();
@@ -147,34 +143,22 @@ public class ExportService {
                 itemRequest.setPpi(request.getPpi());
                 itemRequest.setWidthPx(request.getWidthPx(i));
                 itemRequest.setHeightPx(request.getHeightPx(i));
+                itemRequest.setSvgTextMode(request.getSvgTextMode());
 
                 byte[] prepared = preparePdfDocumentBytes(data, uploadType, itemRequest, dpi, colorProfile);
-                RandomAccessReadBuffer sourceBuffer = new RandomAccessReadBuffer(prepared);
-                preparedSources.add(sourceBuffer);
-                mergerUtility.addSource(sourceBuffer);
-            }
-
-            mergerUtility.mergeDocuments(null);
-            byte[] mergedBytes = destination.toByteArray();
-
-            try (PDDocument mergedDocument = Loader.loadPDF(mergedBytes)) {
-                applyPdfDefaults(mergedDocument, colorProfile);
-                mergedBytes = saveDocument(mergedDocument);
-            }
-
-            ContentDisposition disposition = ContentDisposition.attachment()
-                    .filename(baseName + ".pdf", StandardCharsets.UTF_8)
-                    .build();
-            return new ExportResponse(mergedBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
-        } finally {
-            for (RandomAccessRead source : preparedSources) {
-                try {
-                    source.close();
-                } catch (IOException ignored) {
+                try (PdfDocument sourceDocument = new PdfDocument(new PdfReader(new ByteArrayInputStream(prepared)))) {
+                    merger.merge(sourceDocument, 1, sourceDocument.getNumberOfPages());
                 }
             }
-            destination.close();
+
+            applyPdfDefaults(mergedDocument, colorProfile);
         }
+
+        byte[] mergedBytes = destination.toByteArray();
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(baseName + ".pdf", StandardCharsets.UTF_8)
+                .build();
+        return new ExportResponse(mergedBytes, MediaType.APPLICATION_PDF_VALUE, disposition);
     }
 
     private ExportResponse convertToPdf(byte[] data, UploadType uploadType, ExportRequest request, String baseName) throws IOException {
@@ -284,41 +268,37 @@ public class ExportService {
         return new ExportResponse(tiffBytes, "image/tiff", disposition);
     }
 
-    private PdfDocumentResult createSourcePdfDocument(byte[] data, UploadType uploadType, ExportRequest request, int dpi, ColorProfile colorProfile) throws IOException {
+    private byte[] preparePdfDocumentBytes(byte[] data, UploadType uploadType, ExportRequest request, int dpi, ColorProfile colorProfile) throws IOException {
         return switch (uploadType) {
             case SVG -> createPdfFromSvg(data, request, colorProfile);
-            case IMAGE -> new PdfDocumentResult(createPdfFromImage(data, request, colorProfile, dpi));
-            case PDF -> new PdfDocumentResult(loadPdfDocument(data));
+            case IMAGE -> createPdfFromImage(data, request, colorProfile, dpi);
+            case PDF -> processExistingPdf(data, colorProfile);
             default -> throw new ConversionException("Неподдерживаемый тип загруженного файла для экспорта в PDF.");
         };
     }
 
-    private PdfDocumentResult createPdfFromSvg(byte[] data, ExportRequest request, ColorProfile colorProfile) throws IOException {
-        PDDocument document = new PDDocument();
+    private byte[] createPdfFromSvg(byte[] data, ExportRequest request, ColorProfile colorProfile) throws IOException {
+        int targetWidthPx = positiveOrDefault(request.getWidthPx(), 0);
+        int targetHeightPx = positiveOrDefault(request.getHeightPx(), 0);
+        float targetWidthPt = targetWidthPx > 0 ? pxToPoints(targetWidthPx) : 0f;
+        float targetHeightPt = targetHeightPx > 0 ? pxToPoints(targetHeightPx) : 0f;
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        WriterProperties writerProperties = pdfResourceFactory.createWriterProperties(null);
+        PdfWriter writer = new PdfWriter(output, writerProperties);
+        PdfDocument pdfDocument = new PdfDocument(writer);
         try {
-            int targetWidthPx = positiveOrDefault(request.getWidthPx(), 0);
-            int targetHeightPx = positiveOrDefault(request.getHeightPx(), 0);
-            float targetWidthPt = targetWidthPx > 0 ? pxToPoints(targetWidthPx) : 0f;
-            float targetHeightPt = targetHeightPx > 0 ? pxToPoints(targetHeightPx) : 0f;
-            CmykPdfColorMapper colorMapper = colorProfile != null
-                    ? new CmykPdfColorMapper(colorProfile.getColorSpace())
-                    : null;
-            if (colorMapper != null) {
-                svgRenderer.renderSvg(data, document, targetWidthPt, targetHeightPt, colorMapper);
-            } else {
-                svgRenderer.renderSvg(data, document, targetWidthPt, targetHeightPt);
-            }
-            return new PdfDocumentResult(document);
-        } catch (IOException | RuntimeException ex) {
-            document.close();
-            if (ex instanceof IOException io) {
-                throw io;
-            }
-            throw ex;
+            FontProvider fontProvider = pdfResourceFactory.createFontProvider();
+            boolean outlineText = request.isSvgTextAsOutlines();
+            svgRenderer.renderSvg(data, pdfDocument, targetWidthPt, targetHeightPt, fontProvider, outlineText);
+            applyPdfDefaults(pdfDocument, colorProfile);
+        } finally {
+            pdfDocument.close();
         }
+        return output.toByteArray();
     }
 
-    private PDDocument createPdfFromImage(byte[] data, ExportRequest request, ColorProfile colorProfile, int dpi) throws IOException {
+    private byte[] createPdfFromImage(byte[] data, ExportRequest request, ColorProfile colorProfile, int dpi) throws IOException {
         BufferedImage image = readBufferedImage(data);
         if (image == null) {
             throw new ConversionException("Не удалось прочитать растровое изображение для PDF.");
@@ -349,36 +329,38 @@ public class ExportService {
         flushIfDifferent(cmyk, null);
         cmyk = null;
 
-        PDDocument document = new PDDocument();
-        PDRectangle pageSize = new PDRectangle(pxToPoints(targetWidth), pxToPoints(targetHeight));
-        PDPage page = new PDPage(pageSize);
-        document.addPage(page);
+        float widthPt = pxToPoints(targetWidth);
+        float heightPt = pxToPoints(targetHeight);
 
-        PDImageXObject imageObject = JPEGFactory.createFromStream(document, new ByteArrayInputStream(jpegBytes));
-        try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
-            contentStream.drawImage(imageObject, 0, 0, pageSize.getWidth(), pageSize.getHeight());
-        }
-        return document;
-    }
-
-    private PDDocument loadPdfDocument(byte[] data) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        WriterProperties writerProperties = pdfResourceFactory.createWriterProperties(null);
+        PdfWriter writer = new PdfWriter(output, writerProperties);
+        PdfDocument pdfDocument = new PdfDocument(writer);
+        pdfDocument.setDefaultPageSize(new PageSize(widthPt, heightPt));
+        com.itextpdf.layout.Document document = new com.itextpdf.layout.Document(pdfDocument, new PageSize(widthPt, heightPt));
         try {
-            return Loader.loadPDF(data);
-        } catch (IOException ex) {
-            throw new ConversionException("Не удалось прочитать PDF-документ.", ex);
-        }
-    }
-
-
-    private byte[] preparePdfDocumentBytes(byte[] data, UploadType uploadType, ExportRequest request, int dpi, ColorProfile colorProfile) throws IOException {
-        PdfDocumentResult sourceResult = createSourcePdfDocument(data, uploadType, request, dpi, colorProfile);
-        PDDocument document = sourceResult.document();
-        try {
-            applyPdfDefaults(document, colorProfile);
-            return saveDocument(document);
+            ImageData imageData = ImageDataFactory.create(jpegBytes);
+            com.itextpdf.layout.element.Image imageElement = new com.itextpdf.layout.element.Image(imageData)
+                    .scaleAbsolute(widthPt, heightPt)
+                    .setFixedPosition(0, 0);
+            document.add(imageElement);
+            applyPdfDefaults(pdfDocument, colorProfile);
         } finally {
             document.close();
         }
+        return output.toByteArray();
+    }
+
+    private byte[] processExistingPdf(byte[] data, ColorProfile colorProfile) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        WriterProperties writerProperties = pdfResourceFactory.createWriterProperties(null);
+        PdfDocument pdfDocument = new PdfDocument(new PdfReader(new ByteArrayInputStream(data)), new PdfWriter(output, writerProperties));
+        try {
+            applyPdfDefaults(pdfDocument, colorProfile);
+        } finally {
+            pdfDocument.close();
+        }
+        return output.toByteArray();
     }
 
     private BufferedImage readBufferedImage(byte[] data) throws IOException {
@@ -389,39 +371,15 @@ public class ExportService {
         }
     }
 
-    private void applyPdfDefaults(PDDocument document, ColorProfile profile) throws IOException {
-        document.setVersion(1.4f);
-        PDDocumentInformation information = document.getDocumentInformation();
-        if (information == null) {
-            information = new PDDocumentInformation();
-            document.setDocumentInformation(information);
-        }
-        information.setProducer("Figma Export Server");
-        information.setCreator("Figma Export Server");
-        information.setTrapped("False");
-        Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
-        calendar.setTimeInMillis(Instant.now().toEpochMilli());
-        information.setCreationDate(calendar);
-        information.setModificationDate(calendar);
+    private void applyPdfDefaults(PdfDocument document, ColorProfile profile) {
+        PdfDocumentInfo info = document.getDocumentInfo();
+        info.setProducer("Figma Export Server");
+        info.setCreator("Figma Export Server");
+        info.setTrapped(PdfName.False);
+        info.addCreationDate();
+        info.addModDate();
 
-        PDDocumentCatalog catalog = document.getDocumentCatalog();
-        var outputIntents = catalog.getOutputIntents();
-        if (outputIntents != null) {
-            outputIntents.clear();
-        }
-        PDOutputIntent intent = new PDOutputIntent(document, new ByteArrayInputStream(profile.getIccBytes()));
-        intent.setInfo(profile.getDisplayName());
-        intent.setOutputCondition(profile.getOutputCondition());
-        intent.setOutputConditionIdentifier(profile.getOutputConditionIdentifier());
-        intent.setRegistryName("http://www.color.org");
-        catalog.addOutputIntent(intent);
-    }
-
-    private byte[] saveDocument(PDDocument document) throws IOException {
-        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            document.save(output);
-            return output.toByteArray();
-        }
+        pdfResourceFactory.applyOutputIntent(document, profile);
     }
 
     private UploadType detectUploadType(MultipartFile file, String format) {
@@ -555,8 +513,5 @@ public class ExportService {
     }
     private float pxToPoints(int value) {
         return (float) (value * PX_TO_POINT);
-    }
-
-    private record PdfDocumentResult(PDDocument document) {
     }
 }

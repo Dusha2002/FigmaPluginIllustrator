@@ -15,13 +15,14 @@
   <artifactId>export-server</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <name>figma-export-server</name>
-  <description>Экспорт графики с использованием PDFBox, Batik и TwelveMonkeys</description>
+  <description>Экспорт графики с использованием PDFBox, Batik, TwelveMonkeys и iText</description>
 
   <properties>
     <java.version>17</java.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <pdfbox.version>3.0.2</pdfbox.version>
     <pdfbox.graphics.version>3.0.3</pdfbox.graphics.version>
+    <itext.version>7.2.6</itext.version>
     <batik.version>1.17</batik.version>
     <spring-boot.run.jvmArguments>-Djava.awt.headless=true</spring-boot.run.jvmArguments>
   </properties>
@@ -73,6 +74,26 @@
       <groupId>de.rototor.pdfbox</groupId>
       <artifactId>graphics2d</artifactId>
       <version>${pdfbox.graphics.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.itextpdf</groupId>
+      <artifactId>kernel</artifactId>
+      <version>${itext.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.itextpdf</groupId>
+      <artifactId>io</artifactId>
+      <version>${itext.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.itextpdf</groupId>
+      <artifactId>layout</artifactId>
+      <version>${itext.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.itextpdf</groupId>
+      <artifactId>svg</artifactId>
+      <version>${itext.version}</version>
     </dependency>
     <dependency>
       <groupId>commons-io</groupId>

@@ -1,3 +1,4 @@
+C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\analysis\PdfAnalysisService.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\color\ColorProfile.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\color\ColorProfileManager.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\config\CorsConfig.java
@@ -10,6 +11,7 @@ C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\model\Export
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\model\ExportResponse.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\model\UploadType.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\pdf\CmykPdfColorMapper.java
+C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\pdf\itext\ITextPdfResourceFactory.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\service\ExportService.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\service\ImageInputLoader.java
 C:\Projects\Figma plugin\server-java\src\main\java\com\figma\export\service\ImageProcessingService.java

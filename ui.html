@@ -567,6 +567,12 @@
           </select>
         </label>
       </div>
+      <div class="stack" id="pdf-options">
+        <label class="checkbox">
+          <input id="pdf-outline-text" type="checkbox" />
+          Преобразовывать текст в кривые
+        </label>
+      </div>
       <div class="stack" id="tiff-options" hidden>
         <select id="tiff-ppi" aria-label="Разрешение TIFF">
           <option value="72">72 PPI (быстрый экспорт)</option>
@@ -604,7 +610,8 @@
     const applySizeButton = document.getElementById('apply-size');
     const exportButton = document.getElementById('export-cmyk');
     const formatSelect = document.getElementById('export-format');
-    const pdfOptionsBlock = null;
+    const pdfOptionsContainer = document.getElementById('pdf-options');
+    const pdfOutlineCheckbox = document.getElementById('pdf-outline-text');
     const tiffOptionsContainer = document.getElementById('tiff-options');
     const tiffPpiSelect = document.getElementById('tiff-ppi');
     const tiffQualitySelect = document.getElementById('tiff-quality');
@@ -644,14 +651,27 @@
     function updateFormatSpecificOptions() {
       const format = formatSelect.value;
       const isTiff = format === 'tiff';
-      tiffOptionsContainer.hidden = !isTiff;
-      tiffLzwOption.hidden = !isTiff;
-      tiffOptionsContainer.classList.toggle('hidden', !isTiff);
-      tiffLzwOption.classList.toggle('hidden', !isTiff);
+      const isPdf = format === 'pdf';
+      if (tiffOptionsContainer) {
+        tiffOptionsContainer.hidden = !isTiff;
+        tiffOptionsContainer.classList.toggle('hidden', !isTiff);
+      }
+      if (tiffLzwOption) {
+        tiffLzwOption.hidden = !isTiff;
+        tiffLzwOption.classList.toggle('hidden', !isTiff);
+      }
+      if (pdfOptionsContainer) {
+        pdfOptionsContainer.hidden = !isPdf;
+        pdfOptionsContainer.classList.toggle('hidden', !isPdf);
+        pdfOptionsContainer.setAttribute('aria-hidden', String(!isPdf));
+      }
       if (!isTiff) {
         tiffPpiSelect.value = '300';
         tiffQualitySelect.value = 'standard';
         tiffLzwCheckbox.checked = false;
+        if (pdfOutlineCheckbox && !isApplyingPreferences) {
+          // Обычно флаг уже обновлён событием смены чекбокса; для PDF оставляем текущее состояние.
+        }
       } else if (!isApplyingPreferences) {
         // Для TIFF устанавливаем значения по умолчанию
         tiffPpiSelect.value = '300';
@@ -684,6 +704,14 @@
         post('update-preferences', { tiffLzw: tiffLzwCheckbox.checked });
       }
     });
+
+    if (pdfOutlineCheckbox) {
+      pdfOutlineCheckbox.addEventListener('change', () => {
+        if (!isApplyingPreferences) {
+          post('update-preferences', { svgTextMode: pdfOutlineCheckbox.checked ? 'outline' : 'embed' });
+        }
+      });
+    }
 
     updateFormatSpecificOptions();
 
@@ -1621,7 +1649,7 @@
         }
         case 'ui-preferences': {
           isApplyingPreferences = true;
-          const { uiScale, sizePreset, themeOverride, exportFormat, tiffPpi, tiffQuality, tiffLzw } = message;
+          const { uiScale, sizePreset, themeOverride, exportFormat, svgTextMode, tiffPpi, tiffQuality, tiffLzw } = message;
           if (uiScaleSelect && typeof uiScale === 'string') {
             uiScaleSelect.value = uiScale;
             applyUiScale(uiScale);
@@ -1637,6 +1665,9 @@
           }
           if (typeof exportFormat === 'string') {
             formatSelect.value = exportFormat;
+          }
+          if (pdfOutlineCheckbox && typeof svgTextMode === 'string') {
+            pdfOutlineCheckbox.checked = svgTextMode.toLowerCase() === 'outline';
           }
           if (typeof tiffPpi === 'number') {
             tiffPpiSelect.value = String(tiffPpi);
@@ -1938,6 +1969,9 @@
         payload.ppi = basePpi;
         payload.tiffLzw = false;
         payload.tiffQuality = 'standard';
+        if (pdfOutlineCheckbox) {
+          payload.svgTextMode = pdfOutlineCheckbox.checked ? 'outline' : 'embed';
+        }
       } else {
         payload.ppi = basePpi;
         payload.tiffLzw = !!tiffLzwCheckbox.checked;

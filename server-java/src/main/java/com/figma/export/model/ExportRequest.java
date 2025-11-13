@@ -30,6 +30,9 @@ public class ExportRequest {
 
     @Pattern(regexp = "(?i)standard|supersample|texthint", message = "tiffQuality должен быть standard, supersample или texthint")
     private String tiffQuality;
+
+    @Pattern(regexp = "(?i)embed|outline", message = "svgTextMode должен быть embed или outline")
+    private String svgTextMode;
     
     // Метаданные для множественных файлов (индекс -> ширина/высота)
     private Map<Integer, Integer> widthPxMap = new HashMap<>();
@@ -91,6 +94,14 @@ public class ExportRequest {
         this.tiffQuality = tiffQuality;
     }
 
+    public String getSvgTextMode() {
+        return svgTextMode;
+    }
+
+    public void setSvgTextMode(String svgTextMode) {
+        this.svgTextMode = svgTextMode;
+    }
+
     public Map<Integer, Integer> getWidthPxMap() {
         return widthPxMap;
     }
@@ -126,5 +137,9 @@ public class ExportRequest {
     
     public Integer getHeightPx(int index) {
         return heightPxMap.get(index);
+    }
+
+    public boolean isSvgTextAsOutlines() {
+        return svgTextMode != null && svgTextMode.equalsIgnoreCase("outline");
     }
 }

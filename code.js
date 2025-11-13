@@ -24,6 +24,7 @@ const defaultPreferences = {
   height: DEFAULT_UI_SIZE.height,
   themeOverride: null,
   exportFormat: 'pdf',
+  svgTextMode: 'embed',
   tiffPpi: 300,
   tiffQuality: 'standard',
   tiffLzw: true
@@ -75,6 +76,7 @@ function sendUiPreferences() {
     sizePreset: uiPreferences.sizePreset,
     themeOverride: uiPreferences.themeOverride,
     exportFormat: uiPreferences.exportFormat,
+    svgTextMode: uiPreferences.svgTextMode,
     tiffPpi: uiPreferences.tiffPpi,
     tiffQuality: uiPreferences.tiffQuality,
     tiffLzw: uiPreferences.tiffLzw
@@ -82,7 +84,11 @@ function sendUiPreferences() {
 }
 
 async function updatePreferences(update) {
-  Object.assign(uiPreferences, update);
+  const sanitizedUpdate = Object.assign({}, update);
+  if (typeof sanitizedUpdate.svgTextMode === 'string') {
+    sanitizedUpdate.svgTextMode = sanitizedUpdate.svgTextMode.toLowerCase() === 'outline' ? 'outline' : 'embed';
+  }
+  Object.assign(uiPreferences, sanitizedUpdate);
   try {
     await figma.clientStorage.setAsync(SETTINGS_STORAGE_KEY, Object.assign({}, uiPreferences));
   } catch (error) {
@@ -396,6 +402,15 @@ sendUiDimensions();
       if (typeof stored.themeOverride === 'string' || stored.themeOverride === null) {
         uiPreferences.themeOverride = stored.themeOverride;
       }
+      if (typeof stored.svgTextMode === 'string') {
+        uiPreferences.svgTextMode = stored.svgTextMode.toLowerCase() === 'outline' ? 'outline' : 'embed';
+      }
+      if (typeof stored.exportFormat === 'string') {
+        uiPreferences.exportFormat = stored.exportFormat;
+      }
+      if (typeof stored.tiffPpi === 'number') {
+        uiPreferences.tiffPpi = stored.tiffPpi;
+      }
     }
   } catch (error) {
     // Игнорируем ошибки загрузки настроек.
@@ -528,6 +543,9 @@ async function exportSelection(settings) {
   const requestedPpi = settings && typeof settings.ppi === 'number'
     ? Math.max(settings.ppi, 1)
     : basePpi;
+  const svgTextMode = settings && typeof settings.svgTextMode === 'string'
+    ? (settings.svgTextMode.toLowerCase() === 'outline' ? 'outline' : 'embed')
+    : 'embed';
   const tiffQuality = settings && typeof settings.tiffQuality === 'string'
     ? settings.tiffQuality
     : 'standard';
@@ -605,7 +623,8 @@ async function exportSelection(settings) {
     useServer: true,
     serverUrl,
     tiffLzw: exportFormat === 'tiff' && useTiffLzw,
-    tiffQuality: exportFormat === 'tiff' ? tiffQuality : 'standard'
+    tiffQuality: exportFormat === 'tiff' ? tiffQuality : 'standard',
+    svgTextMode
   };
 }
 
@@ -646,7 +665,8 @@ figma.ui.onmessage = async (message) => {
           useServer: result.useServer,
           serverUrl: result.serverUrl,
           tiffLzw: result.tiffLzw,
-          tiffQuality: result.tiffQuality
+          tiffQuality: result.tiffQuality,
+          svgTextMode: result.svgTextMode
         });
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : 'Ошибка экспорта.';
@@ -700,6 +720,9 @@ figma.ui.onmessage = async (message) => {
       const update = {};
       if (typeof message.exportFormat === 'string') {
         update.exportFormat = message.exportFormat;
+      }
+      if (typeof message.svgTextMode === 'string') {
+        update.svgTextMode = message.svgTextMode;
       }
       if (typeof message.tiffPpi === 'number') {
         update.tiffPpi = message.tiffPpi;
