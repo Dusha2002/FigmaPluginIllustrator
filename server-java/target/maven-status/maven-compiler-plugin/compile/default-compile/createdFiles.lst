@@ -1,4 +1,3 @@
-com\figma\export\pdf\itext\ITextPdfResourceFactory$FontBinary.class
 com\figma\export\svg\SvgRenderer.class
 com\figma\export\controller\ExportController.class
 com\figma\export\pdf\CmykPdfColorMapper.class

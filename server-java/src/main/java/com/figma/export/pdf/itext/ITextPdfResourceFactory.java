@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 /**
  * Загружает ресурсы (ICC-профили, шрифты) и предоставляет базовые настройки для iText 7.
@@ -42,17 +43,17 @@ public class ITextPdfResourceFactory {
 
     private final ColorProfileManager colorProfileManager;
     private final ResourcePatternResolver resourcePatternResolver;
-    private final List<FontBinary> embeddedFonts;
+    private final List<Resource> embeddedFontResources;
 
     public ITextPdfResourceFactory(ColorProfileManager colorProfileManager,
                                    ResourcePatternResolver resourcePatternResolver) {
         this.colorProfileManager = colorProfileManager;
         this.resourcePatternResolver = resourcePatternResolver;
-        this.embeddedFonts = loadEmbeddedFonts();
-        if (embeddedFonts.isEmpty()) {
+        this.embeddedFontResources = loadEmbeddedFontResources();
+        if (embeddedFontResources.isEmpty()) {
             logger.info("Встроенные шрифты для iText не найдены. Будут использоваться стандартные и системные гарнитуры.");
         } else {
-            logger.info("Загружено {} шрифтов для iText из classpath.", embeddedFonts.size());
+            logger.info("Обнаружено {} шрифтов для iText в classpath.", embeddedFontResources.size());
         }
     }
 
@@ -73,33 +74,18 @@ public class ITextPdfResourceFactory {
     public FontProvider createFontProvider() {
         FontSet fontSet = new FontSet();
         String defaultFamily = null;
-        for (FontBinary fontBinary : embeddedFonts) {
-            try {
-                FontProgram fontProgram = FontProgramFactory.createFont(fontBinary.bytes());
-                try {
-                    PdfFontFactory.createFont(fontProgram, PdfEncodings.IDENTITY_H);
-                } catch (PdfException | com.itextpdf.io.exceptions.IOException fontEx) {
-                    logger.warn("Шрифт '{}' пропущен: {}", fontBinary.name(), fontEx.getMessage());
-                    continue;
-                }
-                String fontName = fontProgram.getFontNames().getFontName();
-                if (fontName == null || fontName.chars().noneMatch(Character::isLetter)) {
-                    logger.warn("Пропущен шрифт '{}': некорректное имя '{}'.", fontBinary.name(), fontName);
-                    continue;
-                }
-                fontSet.addFont(fontProgram, PdfEncodings.IDENTITY_H, fontName);
-                if (fontProgram.getFontNames().getFullName() != null) {
-                    for (String[] full : fontProgram.getFontNames().getFullName()) {
-                        if (full != null && full.length > 0 && full[0] != null && full[0].chars().anyMatch(Character::isLetter)) {
-                            fontSet.addFont(fontProgram, PdfEncodings.IDENTITY_H, full[0]);
-                        }
-                    }
-                }
-                if (defaultFamily == null) {
-                    defaultFamily = fontName;
-                }
-            } catch (com.itextpdf.io.exceptions.IOException | IOException ex) {
-                logger.warn("Не удалось зарегистрировать шрифт '{}' для iText.", fontBinary.name(), ex);
+        for (Resource resource : embeddedFontResources) {
+            String displayName = safeName(resource);
+            FontProgram fontProgram = loadFontProgram(resource, displayName);
+            if (fontProgram == null) {
+                continue;
+            }
+
+            if (!registerFontProgram(fontSet, fontProgram, displayName)) {
+                continue;
+            }
+            if (defaultFamily == null) {
+                defaultFamily = fontProgram.getFontNames().getFontName();
             }
         }
 
@@ -166,12 +152,12 @@ public class ITextPdfResourceFactory {
         };
     }
 
-    private List<FontBinary> loadEmbeddedFonts() {
-        List<FontBinary> fonts = new ArrayList<>();
+    private List<Resource> loadEmbeddedFontResources() {
+        List<Resource> resources = new ArrayList<>();
         for (String pattern : fontPatterns()) {
             try {
-                Resource[] resources = resourcePatternResolver.getResources(pattern);
-                for (Resource resource : resources) {
+                Resource[] found = resourcePatternResolver.getResources(pattern);
+                for (Resource resource : found) {
                     if (!resource.isReadable()) {
                         continue;
                     }
@@ -183,27 +169,65 @@ public class ITextPdfResourceFactory {
                     if (!(lowerName.endsWith(".ttf") || lowerName.endsWith(".otf"))) {
                         continue;
                     }
-                    try (InputStream inputStream = resource.getInputStream()) {
-                        byte[] bytes = inputStream.readAllBytes();
-                        fonts.add(new FontBinary(name, bytes));
-                    }
+                    resources.add(resource);
                 }
             } catch (IOException ex) {
                 logger.warn("Не удалось загрузить шрифты по шаблону '{}'.", pattern, ex);
             }
         }
-        return Collections.unmodifiableList(fonts);
+        return Collections.unmodifiableList(resources);
     }
 
     private List<String> fontPatterns() {
         return List.of(
                 FONT_RESOURCE_LOCATION + "ttf",
-                FONT_RESOURCE_LOCATION + "otf",
-                FONT_RESOURCE_LOCATION + "ttc",
-                FONT_RESOURCE_LOCATION + "otc"
+                FONT_RESOURCE_LOCATION + "otf"
         );
     }
 
-    private record FontBinary(String name, byte[] bytes) {
+    private FontProgram loadFontProgram(Resource resource, String displayName) {
+        try (InputStream inputStream = resource.getInputStream()) {
+            byte[] bytes = inputStream.readAllBytes();
+            return FontProgramFactory.createFont(bytes);
+        } catch (com.itextpdf.io.exceptions.IOException ex) {
+            logger.warn("Шрифт '{}' пропущен: {}", displayName, ex.getMessage());
+            return null;
+        } catch (IOException ex) {
+            logger.warn("Не удалось прочитать шрифт '{}'.", displayName, ex);
+            return null;
+        }
+    }
+
+    private boolean registerFontProgram(FontSet fontSet, FontProgram fontProgram, String displayName) {
+        try {
+            PdfFontFactory.createFont(fontProgram, PdfEncodings.IDENTITY_H);
+        } catch (PdfException | com.itextpdf.io.exceptions.IOException fontEx) {
+            logger.warn("Шрифт '{}' пропущен: {}", displayName, fontEx.getMessage());
+            return false;
+        }
+
+        String fontName = fontProgram.getFontNames().getFontName();
+        if (!isValidName(fontName)) {
+            logger.warn("Пропущен шрифт '{}': некорректное имя '{}'.", displayName, fontName);
+            return false;
+        }
+
+        fontSet.addFont(fontProgram, PdfEncodings.IDENTITY_H, fontName);
+        if (fontProgram.getFontNames().getFullName() != null) {
+            for (String[] full : fontProgram.getFontNames().getFullName()) {
+                if (full != null && full.length > 0 && isValidName(full[0])) {
+                    fontSet.addFont(fontProgram, PdfEncodings.IDENTITY_H, full[0]);
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean isValidName(String name) {
+        return name != null && name.chars().anyMatch(Character::isLetter);
+    }
+
+    private String safeName(Resource resource) {
+        return Objects.requireNonNullElse(resource.getFilename(), resource.getDescription());
     }
 }
