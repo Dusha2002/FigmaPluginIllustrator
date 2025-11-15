@@ -58,11 +58,14 @@ public class ExportController {
         }
         
         ExportResponse response;
-        if (files != null && !files.isEmpty()) {
-            // Множественные файлы для объединения в один PDF
+        boolean hasFiles = files != null && !files.isEmpty();
+        boolean batch = request.isBatch() || (hasFiles && files.size() >= 2);
+
+        if (hasFiles && batch) {
+            response = exportService.convertBatch(files, request);
+        } else if (hasFiles) {
             response = exportService.convertMultiple(files, request);
         } else if (file != null) {
-            // Одиночный файл
             response = exportService.convert(file, request);
         } else {
             throw new IllegalArgumentException("Не предоставлен ни один файл для конвертации");

@@ -11,8 +11,8 @@ import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfOutputIntent;
 import com.itextpdf.kernel.pdf.PdfVersion;
 import com.itextpdf.kernel.pdf.WriterProperties;
+import com.itextpdf.kernel.font.PdfFont;
 import com.itextpdf.kernel.font.PdfFontFactory;
-import com.itextpdf.layout.font.FontProvider;
 import com.itextpdf.layout.font.FontSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,9 +25,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Загружает ресурсы (ICC-профили, шрифты) и предоставляет базовые настройки для iText 7.
@@ -71,7 +73,7 @@ public class ITextPdfResourceFactory {
     /**
      * Создаёт {@link FontProvider} с зарегистрированными стандартными, системными и встроенными шрифтами.
      */
-    public FontProvider createFontProvider() {
+    public NonSubsettingFontProvider createFontProvider() {
         FontSet fontSet = new FontSet();
         String defaultFamily = null;
         for (Resource resource : embeddedFontResources) {
@@ -90,7 +92,7 @@ public class ITextPdfResourceFactory {
         }
 
         String fallbackFamily = defaultFamily != null ? defaultFamily : "Helvetica";
-        FontProvider provider = new FontProvider(fontSet, fallbackFamily);
+        NonSubsettingFontProvider provider = new NonSubsettingFontProvider(fontSet, fallbackFamily);
 
         provider.addStandardPdfFonts();
         provider.addSystemFonts();
@@ -187,8 +189,9 @@ public class ITextPdfResourceFactory {
 
     private FontProgram loadFontProgram(Resource resource, String displayName) {
         try (InputStream inputStream = resource.getInputStream()) {
-            byte[] bytes = inputStream.readAllBytes();
-            return FontProgramFactory.createFont(bytes);
+            byte[] bytes = FontEmbeddingUtil.ensureEmbeddable(inputStream.readAllBytes(), displayName, logger);
+            FontProgram fontProgram = FontProgramFactory.createFont(bytes);
+            return fontProgram;
         } catch (com.itextpdf.io.exceptions.IOException ex) {
             logger.warn("Шрифт '{}' пропущен: {}", displayName, ex.getMessage());
             return null;
@@ -200,7 +203,8 @@ public class ITextPdfResourceFactory {
 
     private boolean registerFontProgram(FontSet fontSet, FontProgram fontProgram, String displayName) {
         try {
-            PdfFontFactory.createFont(fontProgram, PdfEncodings.IDENTITY_H);
+            PdfFont pdfFont = PdfFontFactory.createFont(fontProgram, PdfEncodings.IDENTITY_H);
+            pdfFont.setSubset(false);
         } catch (PdfException | com.itextpdf.io.exceptions.IOException fontEx) {
             logger.warn("Шрифт '{}' пропущен: {}", displayName, fontEx.getMessage());
             return false;
@@ -213,11 +217,16 @@ public class ITextPdfResourceFactory {
         }
 
         fontSet.addFont(fontProgram, PdfEncodings.IDENTITY_H, fontName);
-        if (fontProgram.getFontNames().getFullName() != null) {
-            for (String[] full : fontProgram.getFontNames().getFullName()) {
-                if (full != null && full.length > 0 && isValidName(full[0])) {
-                    fontSet.addFont(fontProgram, PdfEncodings.IDENTITY_H, full[0]);
-                }
+
+        Set<String> aliases = collectFontAliases(fontProgram);
+        for (String alias : aliases) {
+            fontSet.addFont(fontProgram, PdfEncodings.IDENTITY_H, alias);
+        }
+        if (logger.isDebugEnabled()) {
+            if (!aliases.isEmpty()) {
+                logger.debug("Font '{}' registered with aliases: {}", displayName, aliases);
+            } else {
+                logger.debug("Font '{}' registered without additional aliases", displayName);
             }
         }
         return true;
@@ -225,6 +234,96 @@ public class ITextPdfResourceFactory {
 
     private boolean isValidName(String name) {
         return name != null && name.chars().anyMatch(Character::isLetter);
+    }
+
+    private Set<String> collectFontAliases(FontProgram fontProgram) {
+        Set<String> aliases = new LinkedHashSet<>();
+        String fontName = fontProgram.getFontNames().getFontName();
+        addSimpleVariants(aliases, fontName);
+        String[][] fullNames = fontProgram.getFontNames().getFullName();
+        if (fullNames != null) {
+            for (String[] full : fullNames) {
+                if (full != null && full.length > 0 && isValidName(full[0])) {
+                    aliases.add(full[0]);
+                    addSimpleVariants(aliases, full[0]);
+                }
+            }
+        }
+        aliases.remove(fontName);
+        return aliases;
+    }
+
+    private void addSimpleVariants(Set<String> aliases, String name) {
+        if (name == null) {
+            return;
+        }
+        String trimmed = name.trim();
+        if (!isValidName(trimmed)) {
+            return;
+        }
+        aliases.add(trimmed);
+        aliases.add(trimmed.toLowerCase(Locale.ROOT));
+        aliases.add(trimmed.toUpperCase(Locale.ROOT));
+
+        String baseName = removeStyleSuffix(trimmed);
+        if (isValidName(baseName)) {
+            aliases.add(baseName);
+            aliases.add(baseName.toLowerCase(Locale.ROOT));
+            aliases.add(baseName.toUpperCase(Locale.ROOT));
+        }
+
+        int hyphenIndex = trimmed.indexOf('-');
+        if (hyphenIndex > 0) {
+            String prefix = trimmed.substring(0, hyphenIndex).trim();
+            if (isValidName(prefix)) {
+                aliases.add(prefix);
+                aliases.add(prefix.toLowerCase(Locale.ROOT));
+                aliases.add(prefix.toUpperCase(Locale.ROOT));
+            }
+        }
+
+        int spaceIndex = trimmed.indexOf(' ');
+        if (spaceIndex > 0) {
+            String prefix = trimmed.substring(0, spaceIndex).trim();
+            if (isValidName(prefix)) {
+                aliases.add(prefix);
+                aliases.add(prefix.toLowerCase(Locale.ROOT));
+                aliases.add(prefix.toUpperCase(Locale.ROOT));
+            }
+        }
+    }
+
+    private String removeStyleSuffix(String name) {
+        if (name == null) {
+            return null;
+        }
+        String trimmed = name.trim();
+        if (trimmed.isEmpty()) {
+            return trimmed;
+        }
+        int lastSpace = trimmed.lastIndexOf(' ');
+        if (lastSpace > 0) {
+            String suffix = trimmed.substring(lastSpace + 1);
+            if (isStyleDescriptor(suffix)) {
+                return trimmed.substring(0, lastSpace);
+            }
+        }
+        int lastHyphen = trimmed.lastIndexOf('-');
+        if (lastHyphen > 0) {
+            String suffix = trimmed.substring(lastHyphen + 1);
+            if (isStyleDescriptor(suffix)) {
+                return trimmed.substring(0, lastHyphen);
+            }
+        }
+        return trimmed;
+    }
+
+    private boolean isStyleDescriptor(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return normalized.matches("(regular|italic|oblique|bold|semibold|medium|light|thin|extrathin|extralight|black|heavy|book|roman|condensed|expanded)");
     }
 
     private String safeName(Resource resource) {

@@ -20,6 +20,8 @@
       --input-border-hover: #aeb1b8;
       --label: #6b6f76;
       --shadow: none;
+      --status-online: #22c55e;
+      --status-offline: #ef4444;
     }
 
     .panel-actions button {
@@ -125,6 +127,8 @@
       --input-border-hover: #54545a;
       --label: #abadb3;
       --shadow: none;
+      --status-online: #4ade80;
+      --status-offline: #f87171;
     }
 
     body {
@@ -206,6 +210,12 @@
       gap: 12px;
     }
 
+    .panel-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     h2 {
       margin: 0;
       font-size: 0.75em;
@@ -227,6 +237,87 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
+    }
+
+    .server-status-indicator {
+      position: relative;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      --status-color: var(--muted);
+      background: radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--status-color) 92%, #ffffff 8%), var(--status-color));
+      box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--status-color) 35%, transparent),
+        0 0 0 1px rgba(0, 0, 0, 0.08);
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .server-status-indicator::after {
+      content: "";
+      position: absolute;
+      inset: -6px;
+      border-radius: inherit;
+      background: var(--status-color);
+      opacity: 0;
+      transform: scale(0.85);
+      filter: blur(8px);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    .server-status-indicator.is-online {
+      --status-color: var(--status-online);
+      box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--status-color) 35%, transparent),
+        0 0 0 1px color-mix(in srgb, var(--status-color) 55%, transparent),
+        0 0 8px color-mix(in srgb, var(--status-color) 40%, transparent);
+    }
+
+    .server-status-indicator.is-online::after {
+      opacity: 0.45;
+      animation: statusPulse 2.4s ease-out infinite;
+    }
+
+    .server-status-indicator.is-offline {
+      --status-color: var(--status-offline);
+      box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--status-color) 30%, transparent),
+        0 0 0 1px color-mix(in srgb, var(--status-color) 35%, transparent),
+        0 0 6px color-mix(in srgb, var(--status-color) 30%, transparent);
+    }
+
+    .server-status-indicator.is-offline::after {
+      opacity: 0.35;
+      animation: statusPulseCritical 1.8s ease-out infinite;
+    }
+
+    @keyframes statusPulse {
+      0% {
+        opacity: 0.45;
+        transform: scale(0.7);
+      }
+      60% {
+        opacity: 0;
+        transform: scale(1.65);
+      }
+      100% {
+        opacity: 0;
+        transform: scale(1.8);
+      }
+    }
+
+    @keyframes statusPulseCritical {
+      0% {
+        opacity: 0.35;
+        transform: scale(0.65);
+      }
+      30% {
+        opacity: 0;
+        transform: scale(1.4);
+      }
+      100% {
+        opacity: 0;
+        transform: scale(1.45);
+      }
     }
 
     .row {
@@ -556,7 +647,10 @@
 
     <section class="panel" id="export-panel">
       <div class="panel-header">
-        <h2>Экспорт в CMYK</h2>
+        <div class="panel-title">
+          <h2>Экспорт в CMYK</h2>
+          <span id="server-status-indicator" class="server-status-indicator" role="status" aria-live="polite" title="Статус сервера"></span>
+        </div>
       </div>
       <div class="stack">
         <label>
@@ -590,7 +684,10 @@
         </label>
       </div>
       <div class="panel-footer">
-        <button id="export-cmyk">Экспортировать</button>
+        <div class="stack" style="align-items: flex-end;">
+          <span id="selection-summary" class="subtitle muted">Нет выделенных объектов</span>
+          <button id="export-cmyk">Экспортировать</button>
+        </div>
       </div>
     </section>
   </main>
@@ -636,6 +733,8 @@
     const uiHeightInput = document.getElementById('ui-height');
     const uiHeightRange = document.getElementById('ui-height-range');
     const exportOverlay = document.getElementById('export-loading');
+    const selectionSummary = document.getElementById('selection-summary');
+    const serverStatusIndicator = document.getElementById('server-status-indicator');
     let manualThemeOverride = null;
     let isApplyingPreferences = false;
     const autoLayoutSection = document.getElementById('auto-layout-section');
@@ -647,6 +746,11 @@
     const autoLayoutPaddingBottom = document.getElementById('auto-layout-padding-bottom');
     const autoLayoutPaddingLeft = document.getElementById('auto-layout-padding-left');
     let settingsExpanded = false;
+    let currentSelectionCount = 0;
+    let isExporting = false;
+    let selectionResizable = false;
+    let selectionRatio = null;
+    let isSyncingDimensions = false;
 
     function updateFormatSpecificOptions() {
       const format = formatSelect.value;
@@ -680,8 +784,25 @@
       }
     }
 
+    function setServerStatus(isOnline) {
+      if (!serverStatusIndicator) {
+        return;
+      }
+      serverStatusIndicator.classList.remove('is-online', 'is-offline');
+      if (isOnline) {
+        serverStatusIndicator.classList.add('is-online');
+        serverStatusIndicator.setAttribute('title', 'Сервер доступен');
+        serverStatusIndicator.setAttribute('aria-label', 'Сервер доступен');
+      } else {
+        serverStatusIndicator.classList.add('is-offline');
+        serverStatusIndicator.setAttribute('title', 'Сервер недоступен');
+        serverStatusIndicator.setAttribute('aria-label', 'Сервер недоступен');
+      }
+    }
+
     formatSelect.addEventListener('change', () => {
       updateFormatSpecificOptions();
+      updateExportControls();
       if (!isApplyingPreferences) {
         post('update-preferences', { exportFormat: formatSelect.value });
       }
@@ -714,6 +835,29 @@
     }
 
     updateFormatSpecificOptions();
+
+    async function checkServerStatus() {
+      if (!serverStatusIndicator) {
+        return;
+      }
+      try {
+        const response = await fetch(new URL('/health', DEFAULT_SERVER_URL).toString(), {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (!response.ok) {
+          throw new Error('Bad status');
+        }
+        const payload = await response.json();
+        const status = typeof payload?.status === 'string' ? payload.status.toUpperCase() : '';
+        setServerStatus(status === 'UP');
+      } catch (error) {
+        setServerStatus(false);
+      }
+    }
+
+    checkServerStatus();
+    setInterval(checkServerStatus, 3000);
 
     function post(type, payload) {
       const message = { type };
@@ -890,12 +1034,40 @@
       }
     }
 
-    function setExportState(isExporting) {
-      exportButton.disabled = isExporting;
-      exportButton.textContent = isExporting ? 'Экспорт...' : 'Экспортировать выделение';
+    function updateExportControls() {
+      const count = currentSelectionCount || 0;
+      const hasSelection = count > 0;
+
+      if (selectionSummary) {
+        if (!hasSelection) {
+          selectionSummary.textContent = 'Нет выделенных объектов';
+        } else if (count === 1) {
+          selectionSummary.textContent = 'Выделен 1 объект';
+        } else {
+          selectionSummary.textContent = `Выделено ${count} объектов`;
+        }
+      }
+
+      if (exportButton) {
+        const disabled = !hasSelection || isExporting;
+        exportButton.disabled = disabled;
+        const title = hasSelection
+          ? 'Экспортировать выделение'
+          : 'Нет выделенных объектов для экспорта';
+        exportButton.title = title;
+        exportButton.setAttribute('aria-label', title);
+      }
     }
 
-    const DEFAULT_SERVER_URL = 'https://figmapluginillustrator.up.railway.app';
+    function setExportState(exporting) {
+      isExporting = exporting;
+      if (exportButton) {
+        exportButton.textContent = exporting ? 'Экспорт...' : 'Экспортировать';
+      }
+      updateExportControls();
+    }
+
+    const DEFAULT_SERVER_URL = 'http://localhost:8080';
 
     const encoder = new TextEncoder();
     const PDF_STANDARD_CONFIG = {};
@@ -1419,6 +1591,10 @@
         throw new Error('Некорректный URL сервера.');
       }
 
+      const isBatch = Array.isArray(items) && items.length > 1;
+      const firstItem = items[0];
+      const baseName = firstItem && firstItem.name ? firstItem.name : 'export';
+
       const formData = new FormData();
       formData.append('format', format);
       formData.append('ppi', ppi);
@@ -1427,12 +1603,13 @@
       formData.append('pdfColorProfile', 'coated_fogra39');
       formData.append('tiffLzw', tiffLzw ? 'true' : 'false');
       formData.append('tiffQuality', tiffQuality || 'standard');
-      
-      // Для PDF с несколькими элементами отправляем все файлы
-      if (format === 'pdf' && items.length > 1) {
-        // Используем имя первого элемента или 'combined'
-        formData.append('name', items[0].name || 'combined');
-        
+      formData.append('batch', isBatch ? 'true' : 'false');
+      formData.append('name', baseName);
+      if (isBatch) {
+        formData.append('zipName', baseName);
+      }
+
+      if (isBatch) {
         for (let i = 0; i < items.length; i++) {
           const item = items[i];
           const binaryArray = item.data instanceof Uint8Array ? item.data : new Uint8Array(item.data);
@@ -1448,15 +1625,12 @@
           })();
           const uploadBlob = new Blob([binaryArray], { type: uploadMeta.blobType });
 
-          // Добавляем метаданные для каждого элемента
           formData.append(`widthPx_${i}`, item.widthPx || '');
           formData.append(`heightPx_${i}`, item.heightPx || '');
-          formData.append(`images`, uploadBlob, `${item.name || `element_${i}`}.${uploadMeta.extension}`);
+          formData.append('images', uploadBlob, `${item.name || `element_${i}`}.${uploadMeta.extension}`);
         }
-      } else {
-        // Для TIFF или одиночного PDF отправляем один файл
-        const item = items[0];
-        formData.append('name', item.name || 'export');
+      } else if (firstItem) {
+        const item = firstItem;
         formData.append('widthPx', item.widthPx || '');
         formData.append('heightPx', item.heightPx || '');
 
@@ -1511,8 +1685,7 @@
       }
 
       try {
-        // Для PDF с несколькими элементами объединяем в один файл
-        if (format === 'pdf' && items.length > 1) {
+        if (items.length > 1) {
           const resultBlob = await exportViaServer(items, {
             format,
             ppi,
@@ -1520,26 +1693,24 @@
             tiffLzw: !!tiffLzw,
             tiffQuality: tiffQuality || 'standard'
           });
-          const exportName = items[0].name || 'combined';
-          await saveBlob(resultBlob, `${exportName}.pdf`);
-        } else {
-          // Для TIFF или одиночного PDF экспортируем каждый элемент отдельно
-          for (const item of items) {
-            const exportName = item.name || 'export';
-            try {
-              const resultBlob = await exportViaServer([item], {
-                format,
-                ppi,
-                serverUrl,
-                tiffLzw: !!tiffLzw,
-                tiffQuality: tiffQuality || 'standard'
-              });
-              const extension = format === 'pdf' ? 'pdf' : 'tif';
-              await saveBlob(resultBlob, `${exportName}.${extension}`);
-            } catch (error) {
-              console.error('Ошибка обработки элемента', exportName, error);
-              alert(`Не удалось экспортировать «${exportName}»: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
-            }
+          const exportName = items[0].name || 'export';
+          await saveBlob(resultBlob, `${exportName}.zip`);
+        } else if (items.length === 1) {
+          const item = items[0];
+          const exportName = item.name || 'export';
+          try {
+            const resultBlob = await exportViaServer([item], {
+              format,
+              ppi,
+              serverUrl,
+              tiffLzw: !!tiffLzw,
+              tiffQuality: tiffQuality || 'standard'
+            });
+            const extension = format === 'pdf' ? 'pdf' : 'tif';
+            await saveBlob(resultBlob, `${exportName}.${extension}`);
+          } catch (error) {
+            console.error('Ошибка обработки элемента', exportName, error);
+            alert(`Не удалось экспортировать «${exportName}»: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
           }
         }
       } catch (error) {
@@ -1557,6 +1728,7 @@
         case 'selection-change': {
           const { width, height, x, y, resizable, selectionCount, distances, autoLayout } = message;
           selectionResizable = !!resizable;
+          currentSelectionCount = typeof selectionCount === 'number' ? selectionCount : 0;
           if (typeof width === 'number' && typeof height === 'number') {
             widthInput.value = toFixed(width);
             heightInput.value = toFixed(height);
@@ -1594,6 +1766,7 @@
             hasSingleSelection = false;
           }
           setDistanceList(distances);
+          updateExportControls();
           break;
         }
         case 'size-update':
@@ -1679,6 +1852,7 @@
             tiffLzwCheckbox.checked = tiffLzw;
           }
           updateFormatSpecificOptions();
+          updateExportControls();
           isApplyingPreferences = false;
           break;
         }

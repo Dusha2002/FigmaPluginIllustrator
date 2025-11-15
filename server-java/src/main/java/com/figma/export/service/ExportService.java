@@ -32,8 +32,12 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.zip.Deflater;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 @Service
 public class ExportService {
@@ -42,7 +46,7 @@ public class ExportService {
 
     private static final String FORMAT_PDF = "pdf";
     private static final String FORMAT_TIFF = "tiff";
-    private static final int DEFAULT_PPI = 72;
+    private static final int DEFAULT_PPI = 96;
     private static final int DEFAULT_TIFF_PPI = 300;
     private static final double PX_TO_POINT = 72d / DEFAULT_PPI;
     private static final int MAX_TIFF_DIMENSION = 6000;
@@ -116,6 +120,94 @@ public class ExportService {
             throw ex;
         } catch (IOException e) {
             throw new ConversionException("Не удалось прочитать загруженные файлы.", e);
+        }
+    }
+
+    public ExportResponse convertBatch(java.util.List<org.springframework.web.multipart.MultipartFile> files, ExportRequest request) {
+        String format = normalize(request.getFormat());
+        if (format == null || format.isEmpty()) {
+            format = FORMAT_PDF;
+        }
+
+        if (files == null || files.isEmpty()) {
+            throw new ConversionException("Не переданы элементы для пакетного экспорта.");
+        }
+
+        String rawZipName = request.getZipName();
+        if (rawZipName == null || rawZipName.trim().isEmpty()) {
+            rawZipName = request.getName();
+        }
+        String zipBaseName = sanitizeName(rawZipName, "export");
+
+        try {
+            List<ExportResponseItem> items = new ArrayList<>();
+
+            if (FORMAT_PDF.equals(format)) {
+                for (int i = 0; i < files.size(); i++) {
+                    MultipartFile file = files.get(i);
+                    byte[] data = file.getBytes();
+                    UploadType uploadType = detectUploadType(file, format);
+
+                    String itemBaseName = zipBaseName + "_" + (i + 1);
+
+                    ExportRequest itemRequest = new ExportRequest();
+                    itemRequest.setFormat(request.getFormat());
+                    itemRequest.setName(itemBaseName);
+                    itemRequest.setPpi(request.getPpi());
+                    itemRequest.setWidthPx(request.getWidthPx(i));
+                    itemRequest.setHeightPx(request.getHeightPx(i));
+                    itemRequest.setSvgTextMode(request.getSvgTextMode());
+
+                    ExportResponse itemResponse = convertToPdf(data, uploadType, itemRequest, itemBaseName);
+                    items.add(new ExportResponseItem(
+                            itemResponse.contentDisposition().getFilename(),
+                            itemResponse.payload()
+                    ));
+                }
+            } else if (FORMAT_TIFF.equals(format)) {
+                for (int i = 0; i < files.size(); i++) {
+                    MultipartFile file = files.get(i);
+                    byte[] data = file.getBytes();
+                    UploadType uploadType = detectUploadType(file, format);
+
+                    String itemBaseName = zipBaseName + "_" + (i + 1);
+
+                    ExportRequest itemRequest = new ExportRequest();
+                    itemRequest.setFormat(request.getFormat());
+                    itemRequest.setName(itemBaseName);
+                    itemRequest.setPpi(request.getPpi());
+                    itemRequest.setTiffLzw(request.isTiffLzw());
+                    itemRequest.setTiffQuality(request.getTiffQuality());
+                    itemRequest.setWidthPx(request.getWidthPx(i));
+                    itemRequest.setHeightPx(request.getHeightPx(i));
+
+                    ExportResponse itemResponse = convertToTiff(data, uploadType, itemRequest, itemBaseName);
+                    items.add(new ExportResponseItem(
+                            itemResponse.contentDisposition().getFilename(),
+                            itemResponse.payload()
+                    ));
+                }
+            } else {
+                throw new ConversionException("Неподдерживаемый формат экспорта для пакетного режима: " + request.getFormat());
+            }
+
+            byte[] zipBytes = createZipArchive(items);
+            double zipMb = zipBytes.length / (1024d * 1024d);
+            logger.info("Пакетный экспорт завершён: format={}, items={}, zipSizeBytes={}, zipSizeMb={}, zipName={}",
+                    format,
+                    items.size(),
+                    zipBytes.length,
+                    String.format(Locale.ROOT, "%.2f", zipMb),
+                    zipBaseName);
+
+            ContentDisposition disposition = ContentDisposition.attachment()
+                    .filename(zipBaseName + ".zip", StandardCharsets.UTF_8)
+                    .build();
+            return new ExportResponse(zipBytes, "application/zip", disposition);
+        } catch (ConversionException ex) {
+            throw ex;
+        } catch (IOException e) {
+            throw new ConversionException("Не удалось прочитать загруженные файлы для пакетного экспорта.", e);
         }
     }
 
@@ -513,5 +605,42 @@ public class ExportService {
     }
     private float pxToPoints(int value) {
         return (float) (value * PX_TO_POINT);
+    }
+
+    private byte[] createZipArchive(List<ExportResponseItem> items) throws IOException {
+        if (items == null || items.isEmpty()) {
+            throw new ConversionException("Нет данных для создания ZIP-архива.");
+        }
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (ZipOutputStream zipOut = new ZipOutputStream(output)) {
+            zipOut.setLevel(Deflater.DEFAULT_COMPRESSION);
+
+            for (ExportResponseItem item : items) {
+                if (item == null || item.payload == null || item.payload.length == 0) {
+                    continue;
+                }
+                String entryName = item.fileName != null && !item.fileName.isEmpty()
+                        ? item.fileName
+                        : "item";
+                String safeName = sanitizeName(entryName, "item");
+                ZipEntry entry = new ZipEntry(safeName);
+                zipOut.putNextEntry(entry);
+                zipOut.write(item.payload);
+                zipOut.closeEntry();
+            }
+        }
+
+        return output.toByteArray();
+    }
+
+    private static final class ExportResponseItem {
+        private final String fileName;
+        private final byte[] payload;
+
+        private ExportResponseItem(String fileName, byte[] payload) {
+            this.fileName = fileName;
+            this.payload = payload;
+        }
     }
 }

@@ -44,6 +44,7 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -53,8 +54,13 @@ import org.slf4j.LoggerFactory;
 public class SvgRenderer {
 
     private static final Logger logger = LoggerFactory.getLogger(SvgRenderer.class);
+    private static final double BLEED_SCALE = 1.001d;
     private static final Pattern FILL_RGB_PATTERN = Pattern.compile("([0-9]*\\.?[0-9]+)\\s+([0-9]*\\.?[0-9]+)\\s+([0-9]*\\.?[0-9]+)\\s+rg");
     private static final Pattern STROKE_RGB_PATTERN = Pattern.compile("([0-9]*\\.?[0-9]+)\\s+([0-9]*\\.?[0-9]+)\\s+([0-9]*\\.?[0-9]+)\\s+RG");
+    private static final Pattern FONT_FAMILY_ATTR_DOUBLE_PATTERN = Pattern.compile("(?i)(font-family\\s*=\\s*\\\")([^\\\"]+)(\\\")");
+    private static final Pattern FONT_FAMILY_ATTR_SINGLE_PATTERN = Pattern.compile("(?i)(font-family\\s*=\\s*')([^']+)(')");
+    private static final Pattern FONT_FAMILY_STYLE_PATTERN = Pattern.compile("(?i)(font-family\\s*:\\s*)([^;]+)");
+    private static final Set<String> loggedFontFamilies = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     public SvgRenderResult renderSvg(byte[] svgBytes,
                                      PdfDocument document,
@@ -65,7 +71,7 @@ public class SvgRenderer {
         ISvgConverterProperties properties = createConverterProperties(fontProvider, outlineText);
         byte[] currentBytes = outlineText
                 ? convertTextToPaths(sanitizeSvgFonts(svgBytes))
-                : svgBytes;
+                : normalizeSvgFontFamilies(svgBytes);
         boolean sanitizedAttempt = outlineText;
         while (true) {
             try (InputStream inputStream = new ByteArrayInputStream(currentBytes)) {
@@ -87,14 +93,37 @@ public class SvgRenderer {
                     heightPt = PageSize.A4.getHeight();
                 }
 
+                if (logger.isInfoEnabled()) {
+                    if (bbox != null) {
+                        logger.info("SVG render bbox: x={}, y={}, w={}pt, h={}pt; target page: {}x{} pt", bbox.getX(), bbox.getY(), intrinsicWidth, intrinsicHeight, widthPt, heightPt);
+                    } else {
+                        logger.info("SVG render bbox: <null>; intrinsic={}x{} pt; target page: {}x{} pt", intrinsicWidth, intrinsicHeight, widthPt, heightPt);
+                    }
+                }
+
                 PdfPage page = document.addNewPage(new PageSize(widthPt, heightPt));
                 PdfCanvas canvas = new PdfCanvas(page);
 
                 double scaleX = widthPt / (intrinsicWidth > 0 ? intrinsicWidth : widthPt);
                 double scaleY = heightPt / (intrinsicHeight > 0 ? intrinsicHeight : heightPt);
-                AffineTransform transform = AffineTransform.getScaleInstance(scaleX, scaleY);
                 if (bbox != null) {
-                    transform.preConcatenate(AffineTransform.getTranslateInstance(-bbox.getX(), -bbox.getY()));
+                    scaleX *= BLEED_SCALE;
+                    scaleY *= BLEED_SCALE;
+                }
+
+                if (logger.isInfoEnabled()) {
+                    logger.info("SVG render scale: scaleX={}, scaleY={}, bleedScale={}", scaleX, scaleY, BLEED_SCALE);
+                }
+                AffineTransform transform;
+                if (bbox != null) {
+                    // Явно строим матрицу S * T, где T: перенос на -bbox.x/-bbox.y, S: масштаб.
+                    // Это даёт x' = scaleX * (x - bbox.x), y' = scaleY * (y - bbox.y),
+                    // чтобы bounding box точно (с небольшим BLEED) заполнял страницу.
+                    double tx = -scaleX * bbox.getX();
+                    double ty = -scaleY * bbox.getY();
+                    transform = new AffineTransform(scaleX, 0d, 0d, scaleY, tx, ty);
+                } else {
+                    transform = AffineTransform.getScaleInstance(scaleX, scaleY);
                 }
 
                 double[] matrix = new double[6];
@@ -156,6 +185,102 @@ public class SvgRenderer {
                 .replaceAll("(?i)font-family\\s*=\\s*\"[^\"]*\"", "")
                 .replaceAll("(?i)font-family\\s*=\\s*'[^']*'", "");
         return sanitized.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private byte[] normalizeSvgFontFamilies(byte[] svgBytes) {
+        String svg = new String(svgBytes, StandardCharsets.UTF_8);
+        String normalized = normalizeFontFamilyAttributes(svg, FONT_FAMILY_ATTR_DOUBLE_PATTERN, true);
+        normalized = normalizeFontFamilyAttributes(normalized, FONT_FAMILY_ATTR_SINGLE_PATTERN, false);
+        normalized = normalizeFontFamilyStyles(normalized);
+        return normalized.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private String normalizeFontFamilyAttributes(String input, Pattern pattern, boolean useDoubleQuotes) {
+        Matcher matcher = pattern.matcher(input);
+        StringBuffer buffer = new StringBuffer();
+        while (matcher.find()) {
+            String rawFamilies = matcher.group(2);
+            String primary = extractPrimaryFontFamily(rawFamilies);
+            if (primary == null || primary.isBlank()) {
+                continue;
+            }
+            logFontFamilyMapping(rawFamilies, primary, "attribute");
+            String replacement = matcher.group(1)
+                    + Matcher.quoteReplacement(formatAttributeFontFamily(primary, useDoubleQuotes))
+                    + matcher.group(3);
+            matcher.appendReplacement(buffer, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(buffer);
+        return buffer.toString();
+    }
+
+    private String normalizeFontFamilyStyles(String input) {
+        Matcher matcher = FONT_FAMILY_STYLE_PATTERN.matcher(input);
+        StringBuffer buffer = new StringBuffer();
+        while (matcher.find()) {
+            String rawFamilies = matcher.group(2);
+            String primary = extractPrimaryFontFamily(rawFamilies);
+            if (primary == null || primary.isBlank()) {
+                continue;
+            }
+            logFontFamilyMapping(rawFamilies, primary, "style");
+            String replacement = matcher.group(1) + formatCssFontFamily(primary);
+            matcher.appendReplacement(buffer, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(buffer);
+        return buffer.toString();
+    }
+
+    private String extractPrimaryFontFamily(String rawFamilies) {
+        if (rawFamilies == null) {
+            return null;
+        }
+        String[] parts = rawFamilies.split(",");
+        for (String part : parts) {
+            String candidate = part.trim();
+            if (candidate.isEmpty()) {
+                continue;
+            }
+            if ((candidate.startsWith("\"") && candidate.endsWith("\""))
+                    || (candidate.startsWith("'") && candidate.endsWith("'"))) {
+                candidate = candidate.substring(1, candidate.length() - 1).trim();
+            }
+            if (!candidate.isEmpty()) {
+                return candidate;
+            }
+        }
+        return rawFamilies.trim();
+    }
+
+    private String formatAttributeFontFamily(String family, boolean useDoubleQuotes) {
+        String sanitized = family.replace("\"", "").replace("'", "");
+        if (useDoubleQuotes) {
+            return sanitized;
+        }
+        return sanitized;
+    }
+
+    private String formatCssFontFamily(String family) {
+        String sanitized = family.replace("'", "\\'");
+        if (sanitized.matches("[A-Za-z0-9_-]+")) {
+            return sanitized;
+        }
+        return "'" + sanitized + "'";
+    }
+
+    private void logFontFamilyMapping(String rawFamilies, String primary, String source) {
+        if (rawFamilies == null || primary == null) {
+            return;
+        }
+        String effectivePrimary = primary.trim();
+        if (effectivePrimary.isEmpty()) {
+            return;
+        }
+        String rawTrimmed = rawFamilies.trim();
+        String key = source + "|" + rawTrimmed + "->" + effectivePrimary;
+        if (loggedFontFamilies.add(key)) {
+            logger.info("SVG font-family ({}): raw='{}' -> '{}'", source, rawFamilies, effectivePrimary);
+        }
     }
 
     private byte[] convertTextToPaths(byte[] svgBytes) {

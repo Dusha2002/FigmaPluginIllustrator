@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.figma.export.ImageProcessingServiceTest" time="0.025" tests="1" errors="0" skipped="0" failures="0">
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.figma.export.font.FontLoadingTest" time="0.014" tests="1" errors="0" skipped="0" failures="0">
   <properties>
     <property name="java.specification.version" value="17"/>
     <property name="sun.cpu.isalist" value="amd64"/>
@@ -63,10 +63,9 @@
     <property name="java.class.version" value="61.0"/>
     <property name="LOGGED_APPLICATION_NAME" value="[figma-export-server] "/>
   </properties>
-  <testcase name="convertToCmyk_keepsDimensions" classname="com.figma.export.ImageProcessingServiceTest" time="0.023">
-    <system-out><![CDATA[2025-11-14T19:44:55.505+07:00  INFO 13936 --- [figma-export-server] [           main] c.f.export.color.ColorProfileManager     : ICC-профиль 'coated_fogra39' загружен из 'profiles/CoatedFOGRA39.icc'.
-2025-11-14T19:44:55.513+07:00  INFO 13936 --- [figma-export-server] [           main] c.f.export.color.ColorProfileManager     : ICC-профиль 'iso_coated_v2' загружен из 'profiles/ISOcoated_v2_eci.icc'.
-2025-11-14T19:44:55.517+07:00  INFO 13936 --- [figma-export-server] [           main] c.f.export.color.ColorProfileManager     : ICC-профиль 'us_web_coated_swop' загружен из 'profiles/USWebCoatedSWOP.icc'.
+  <testcase name="jostRegularFontLoadsSuccessfully" classname="com.figma.export.font.FontLoadingTest" time="0.013">
+    <system-out><![CDATA[2025-11-14T19:44:55.490+07:00  INFO 13936 --- [figma-export-server] [           main] com.figma.export.font.FontLoadingTest    : Original fsType=0, embeddable=true
+2025-11-14T19:44:55.491+07:00  INFO 13936 --- [figma-export-server] [           main] com.figma.export.font.FontLoadingTest    : Patched fsType=0
 ]]></system-out>
   </testcase>
 </testsuite>

@@ -34,6 +34,10 @@ public class ExportRequest {
     @Pattern(regexp = "(?i)embed|outline", message = "svgTextMode должен быть embed или outline")
     private String svgTextMode;
     
+    private boolean batch;
+    
+    private String zipName;
+    
     // Метаданные для множественных файлов (индекс -> ширина/высота)
     private Map<Integer, Integer> widthPxMap = new HashMap<>();
     private Map<Integer, Integer> heightPxMap = new HashMap<>();
@@ -141,5 +145,21 @@ public class ExportRequest {
 
     public boolean isSvgTextAsOutlines() {
         return svgTextMode != null && svgTextMode.equalsIgnoreCase("outline");
+    }
+
+    public boolean isBatch() {
+        return batch;
+    }
+
+    public void setBatch(boolean batch) {
+        this.batch = batch;
+    }
+
+    public String getZipName() {
+        return zipName;
+    }
+
+    public void setZipName(String zipName) {
+        this.zipName = zipName;
     }
 }

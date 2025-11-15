@@ -1,10 +1,12 @@
 com\figma\export\svg\SvgRenderer.class
 com\figma\export\controller\ExportController.class
+com\figma\export\pdf\itext\NonSubsettingFontProvider.class
 com\figma\export\pdf\CmykPdfColorMapper.class
 com\figma\export\service\TiffWriter.class
 com\figma\export\service\ExportService$1.class
 com\figma\export\exception\GlobalExceptionHandler.class
 com\figma\export\config\CorsConfig.class
+com\figma\export\controller\HealthController.class
 com\figma\export\exception\ErrorResponse.class
 com\figma\export\model\ExportRequest.class
 com\figma\export\model\UploadType.class
@@ -19,9 +21,11 @@ com\figma\export\analysis\PdfAnalysisService$VectorInspectionResult.class
 com\figma\export\pdf\itext\ITextPdfResourceFactory.class
 com\figma\export\svg\SvgRenderer$BufferedImageTranscoderResult.class
 com\figma\export\color\ColorProfileManager.class
+com\figma\export\service\ExportService$ExportResponseItem.class
 com\figma\export\service\ImageInputLoader.class
 com\figma\export\color\ColorProfileManager$ColorProfileDescriptor$Builder.class
 com\figma\export\service\ImageResolutionMetadata.class
+com\figma\export\pdf\itext\FontEmbeddingUtil.class
 com\figma\export\analysis\PdfAnalysisService$PdfAnalysisResult.class
 com\figma\export\model\ExportResponse.class
 com\figma\export\color\ColorProfileManager$ColorProfileDescriptor.class

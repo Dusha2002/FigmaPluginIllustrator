@@ -1,0 +1,3 @@
+# Build artifacts
+*.jar
+*.jar.original

@@ -1,7 +1,7 @@
-const DEFAULT_PPI = 72;
+const DEFAULT_PPI = 96;
 const MM_PER_PX = 25.4 / DEFAULT_PPI;
 const PX_PER_MM = DEFAULT_PPI / 25.4;
-const DEFAULT_SERVER_URL = 'https://figmapluginillustrator.up.railway.app';
+const DEFAULT_SERVER_URL = 'http://localhost:8080';
 
 const UI_SIZE_PRESETS = {
   small: { width: 320, height: 440 },
@@ -411,6 +411,12 @@ sendUiDimensions();
       if (typeof stored.tiffPpi === 'number') {
         uiPreferences.tiffPpi = stored.tiffPpi;
       }
+      if (typeof stored.tiffQuality === 'string') {
+        uiPreferences.tiffQuality = stored.tiffQuality;
+      }
+      if (typeof stored.tiffLzw === 'boolean') {
+        uiPreferences.tiffLzw = stored.tiffLzw;
+      }
     }
   } catch (error) {
     // Игнорируем ошибки загрузки настроек.
@@ -534,6 +540,20 @@ function hasRasterEffects(node) {
       return true;
     }
   }
+  if ('fills' in node && node.fills && node.fills !== figma.mixed) {
+    const fills = Array.isArray(node.fills) ? node.fills : [];
+    const hasImageFill = fills.some((fill) => fill && fill.visible !== false && fill.type === 'IMAGE');
+    if (hasImageFill) {
+      return true;
+    }
+  }
+  if ('backgrounds' in node && node.backgrounds && node.backgrounds !== figma.mixed) {
+    const backgrounds = Array.isArray(node.backgrounds) ? node.backgrounds : [];
+    const hasImageBackground = backgrounds.some((bg) => bg && bg.visible !== false && bg.type === 'IMAGE');
+    if (hasImageBackground) {
+      return true;
+    }
+  }
   return false;
 }
 
@@ -576,7 +596,8 @@ async function exportSelection(settings) {
         if (isVector) {
           return {
             format: 'SVG',
-            useAbsoluteBounds: true
+            useAbsoluteBounds: true,
+            svgOutlineText: svgTextMode === 'outline'
           };
         }
         const pngSettings = {
@@ -626,6 +647,46 @@ async function exportSelection(settings) {
     tiffQuality: exportFormat === 'tiff' ? tiffQuality : 'standard',
     svgTextMode
   };
+}
+
+async function exportViaServer(items, options) {
+  const {
+    format,
+    ppi,
+    serverUrl,
+    tiffLzw,
+    tiffQuality,
+    svgTextMode
+  } = options;
+
+  const formData = new FormData();
+  formData.append('format', format);
+  formData.append('ppi', ppi);
+  formData.append('tiffLzw', tiffLzw ? 'true' : 'false');
+  formData.append('tiffQuality', tiffQuality || 'standard');
+  const normalizedTextMode = typeof svgTextMode === 'string' ? svgTextMode.toLowerCase() : 'embed';
+  formData.append('svgTextMode', normalizedTextMode === 'outline' ? 'outline' : 'embed');
+  if (normalizedTextMode === 'outline') {
+    formData.append('svgOutlineText', 'true');
+  }
+
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i];
+    const file = new File([item.data], item.name, { type: `image/${item.fileKind}` });
+    formData.append(`file_${i}`, file);
+  }
+
+  const response = await fetch(serverUrl, {
+    method: 'POST',
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error(`Ошибка экспорта: ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  return result;
 }
 
 figma.ui.onmessage = async (message) => {
